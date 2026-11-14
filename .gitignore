@@ -1,0 +1,45 @@
+# Segredos e configuração local
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.token
+secrets/
+# Ambientes e caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+# Estado e dados do coletor
+state/
+data/
+dados/
+cadernos/
+downloads/
+*.zip
+*.json.gz
+*.sqlite*
+*.db
+*.dump
+*.sql
+*.sql.zst
+*.bak
+backups/
+# Logs e temporários
+*.log
+logs/
+tmp/
+*.tmp
+.DS_Store
+# Gerados pelos instaladores
+deploy-gerado/
