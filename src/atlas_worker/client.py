@@ -15,7 +15,13 @@ log = logging.getLogger("atlas_worker.client")
 
 
 class ClientError(Exception):
-    pass
+    def __init__(self, msg: str, *, status: int | None = None, error_code: str | None = None):
+        super().__init__(msg)
+        self.status, self.error_code = status, error_code
+
+
+class EndpointError(ClientError):
+    """Resposta fora do contrato, incluindo redirecionamento e HTML."""
 
 
 class Unauthorized(ClientError):
@@ -43,8 +49,9 @@ class ServerUnavailable(ClientError):
 
 
 class RadarClient:
-    def __init__(self, cfg: Settings, transport: httpx.AsyncBaseTransport | None = None, sleep=asyncio.sleep):
+    def __init__(self, cfg: Settings, transport: httpx.AsyncBaseTransport | None = None, sleep=asyncio.sleep, observer=None):
         self.cfg = cfg
+        self.observer = observer
         self._sleep = sleep
         self._http = httpx.AsyncClient(
             base_url=cfg.base_url, timeout=cfg.request_timeout, transport=transport, verify=True,   # TLS sempre validado
@@ -62,20 +69,41 @@ class RadarClient:
                 r = await self._http.request(method, "/coletores.php/" + path, json=body if method == "POST" else None, params=None if method == "POST" else body)
             except (httpx.TimeoutException, httpx.TransportError) as e:
                 ultimo = ServerUnavailable(f"{type(e).__name__} em {path}")
+                ultimo.__cause__ = e
+                if self.observer:
+                    self.observer(False)
             else:
                 if r.status_code == 200:
-                    return r.json().get("dados", {})
+                    try:
+                        payload = r.json()
+                        data = payload["dados"]
+                        if not isinstance(data, dict):
+                            raise ValueError("dados inválidos")
+                    except (ValueError, KeyError, TypeError):
+                        raise EndpointError("Resposta fora do contrato JSON.", status=200) from None
+                    if self.observer:
+                        self.observer(True)
+                    return data
+                if self.observer:
+                    self.observer(False)
+                if 300 <= r.status_code < 400:
+                    raise EndpointError("Redirecionamento recusado; confira a URL da API.", status=r.status_code)
                 msg = self._msg(r)
+                try:
+                    code = r.json().get("erro", {}).get("codigo")
+                except (ValueError, AttributeError):
+                    code = None
                 if r.status_code in (401, 403):
-                    raise Unauthorized(msg)
+                    raise Unauthorized(msg, status=r.status_code, error_code=code)
                 if r.status_code == 404:
-                    raise NotFound(msg)
+                    raise NotFound(msg, status=r.status_code, error_code=code)
                 if r.status_code == 409:
                     raise LeaseLost(msg)
                 if r.status_code in (400, 413, 422):
-                    raise Rejected(msg)
+                    raise Rejected(msg, status=r.status_code, error_code=code)
                 ra = r.headers.get("Retry-After")
                 ultimo = ServerUnavailable(f"HTTP {r.status_code} em {path}: {msg}", float(ra) if ra and ra.isdigit() else None)
+                ultimo.status = r.status_code
             if i < tentativas - 1:
                 espera = ultimo.retry_after if isinstance(ultimo, ServerUnavailable) and ultimo.retry_after else min(30.0, 2.0 * 2**i)
                 await self._sleep(espera * random.uniform(0.75, 1.25))
@@ -86,8 +114,8 @@ class RadarClient:
     def _msg(r: httpx.Response) -> str:
         try:
             return str(r.json().get("erro", {}).get("mensagem", r.text[:200]))
-        except ValueError:
-            return r.text[:200]
+        except (ValueError, AttributeError):
+            return "Resposta fora do contrato JSON."
 
     # ---- contrato v1 -------------------------------------------------------------------------------------------------
     async def registrar(self, info: dict) -> dict:

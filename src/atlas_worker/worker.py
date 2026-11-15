@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from . import __version__
+from . import CONTRATO, __version__
 from .checkpoint import Checkpoint
 from .client import ClientError, LeaseLost, NotFound, RadarClient, Rejected, ServerUnavailable, Unauthorized
 from .collectors.datajud import DataJud, LoteIncompleto
@@ -43,6 +43,7 @@ class Worker:
         self.metrics = Metrics()
         self.ck = Checkpoint(cfg.state_dir)
         self.parar = asyncio.Event()
+        self.erro_fatal: ClientError | None = None
         self.pausado = False
         self.max_conc = cfg.max_concurrency
         self.ativas: dict[int, asyncio.Task] = {}
@@ -69,6 +70,7 @@ class Worker:
         self.lote_itens = max(10, min(self.cfg.batch_items, int(c.get("lote_itens", self.cfg.batch_items))))
 
     def _perdeu_acesso(self) -> None:
+        self.erro_fatal = self.erro_fatal or Unauthorized("A chave não é mais aceita pelo Radar.")
         self.parar.set()
         for t in self.ativas.values():
             t.cancel()
@@ -76,6 +78,8 @@ class Worker:
     # ---- ciclo de vida ------------------------------------------------------------------------------------------------
     async def iniciar(self) -> None:
         cfg = await self.client.registrar({**identidade_maquina(), "versao": __version__, "nome": self.cfg.worker_name, "max_concorrencia": self.cfg.max_concurrency})
+        if cfg.get("contrato") != CONTRATO:
+            raise Rejected("Contrato da API incompatível. Atualize o coletor.", error_code="contrato_incompativel")
         self._receber_config(cfg)
         log.info("registrado como %s; comando do servidor: %s; até %d tarefas", self.cfg.worker_name, cfg.get("comando"), self.max_conc)
 
@@ -83,6 +87,7 @@ class Worker:
         try:
             await self.iniciar()
         except Unauthorized as e:
+            self.erro_fatal = e
             log.error("chave recusada pelo servidor (%s); encerrando. Confira WORKER_TOKEN ou peça uma nova chave", e)
             self.parar.set()
             if self._http_proprio:
@@ -100,7 +105,8 @@ class Worker:
                     continue
                 try:
                     r = await self.client.reservar(self.cfg.types)
-                except Unauthorized:
+                except Unauthorized as e:
+                    self.erro_fatal = e
                     log.error("chave não aceita; encerrando")
                     break
                 except ClientError as e:
@@ -119,6 +125,7 @@ class Worker:
                     continue
                 ocioso = 0
                 tarefa = Tarefa.model_validate(t)
+                self.metrics.tarefas_recebidas += 1
                 self.ativas[tarefa.id] = asyncio.create_task(self._executar(tarefa))
             await self._esperar_ativas()
         finally:
@@ -153,6 +160,7 @@ class Worker:
                 log.warning("não foi possível retomar a tarefa %s agora: %s", t["id"], e)
                 continue
             log.info("retomando a tarefa %s depois do reinício", t["id"])
+            self.metrics.tarefas_recebidas += 1
             self.ativas[t["id"]] = asyncio.create_task(self._executar(Tarefa.model_validate(t)))
 
     # ---- execução de uma tarefa -------------------------------------------------------------------------------------------

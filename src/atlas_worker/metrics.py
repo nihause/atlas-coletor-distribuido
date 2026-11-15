@@ -12,6 +12,7 @@ class Metrics:
     def __init__(self) -> None:
         self.inicio = time.time()
         self.erros = 0
+        self.tarefas_recebidas = 0
         self.itens_enviados = 0
         self.tarefas_concluidas = 0
         self.requisicoes = {"djen": 0, "datajud": 0}
