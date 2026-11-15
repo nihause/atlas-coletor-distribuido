@@ -157,11 +157,13 @@ class Window(QMainWindow):
         self.last_contact = QLabel("—")
         self.worker_name_label = QLabel("—")
         for row, (name, field) in enumerate([("Coletor", self.worker_name_label), ("Servidor Radar", self.connection), ("Serviço coletor", self.service), ("Última comunicação", self.last_contact)]):
+            field.setWordWrap(True); field.setMinimumWidth(0)
             grid.addWidget(QLabel(name), row // 2, (row % 2)*2); grid.addWidget(field, row // 2, (row % 2)*2+1)
         layout.addWidget(connection)
         metrics = QGridLayout(); self.metric_labels = {}
         for i, (key, label) in enumerate([("received", "Tarefas recebidas"), ("completed", "Concluídas"), ("errors", "Com erro"), ("active", "Em execução"), ("uptime", "Tempo de atividade"), ("read", "Itens lidos na fonte"), ("found", "Selecionados para envio"), ("sent", "Confirmados nesta execução")]):
-            group = QWidget(); box = QVBoxLayout(group); box.setContentsMargins(8, 3, 8, 3); box.setSpacing(2); box.addWidget(QLabel(label))
+            group = QWidget(); box = QVBoxLayout(group); box.setContentsMargins(8, 3, 8, 3); box.setSpacing(2)
+            caption=QLabel(label); caption.setWordWrap(True); caption.setMinimumWidth(0); box.addWidget(caption)
             value = QLabel("0" if key != "uptime" else "00:00:00"); value.setObjectName("metric"); value.setMinimumHeight(30)
             box.addWidget(value); metrics.addWidget(group, i // 4, i % 4); self.metric_labels[key] = value
         layout.addLayout(metrics)
@@ -198,7 +200,7 @@ class Window(QMainWindow):
                 form.addRow(label, line)
             else: form.addRow(label, field)
         self.path_label = QLabel(); self.path_label.setWordWrap(True); self.path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        form.addRow("Arquivo local (permissão 600)", self.path_label)
+        form.addRow("Arquivo local do usuário", self.path_label)
         self.autostart = QCheckBox("Conectar automaticamente ao entrar no sistema")
         self.autostart.setChecked(autostart_path().exists()); self.autostart.toggled.connect(self.change_autostart)
         form.addRow(self.autostart)

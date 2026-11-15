@@ -189,7 +189,7 @@ def test_reiniciar_aplicativo_espera_processo_anterior(window,monkeypatch):
     from atlas_worker.gui import app as module
     w=window;calls=[]
     original=Path.is_file
-    monkeypatch.setattr(Path,'is_file',lambda p:True if str(p)=='/usr/bin/atlas-coletor' else original(p))
+    monkeypatch.setattr(Path,'is_file',lambda p:True if p.as_posix()=='/usr/bin/atlas-coletor' else original(p))
     monkeypatch.setattr(module.QProcess,'startDetached',lambda exe,args:calls.append((exe,args)) or (True,12345))
     monkeypatch.setattr(w,'close',lambda:None)
     w.restart_application()
@@ -216,7 +216,7 @@ def test_painel_cabe_sem_rolagem_em_alturas_usuais(window,app,size):
 def test_falha_reinicio_nao_fecha_janela(window,monkeypatch):
     from atlas_worker.gui import app as module
     w=window;original=Path.is_file
-    monkeypatch.setattr(Path,'is_file',lambda p:True if str(p)=='/usr/bin/atlas-coletor' else original(p))
+    monkeypatch.setattr(Path,'is_file',lambda p:True if p.as_posix()=='/usr/bin/atlas-coletor' else original(p))
     monkeypatch.setattr(module.QProcess,'startDetached',lambda *a:(False,-1))
     w.restart_application()
     assert not w.close_pending and 'Não foi possível reiniciar' in w.update_status.text()

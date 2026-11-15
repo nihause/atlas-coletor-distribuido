@@ -112,13 +112,13 @@ def test_logs_incluem_tarefa_e_removem_segredo_de_excecao():
 
 
 def test_autostart_nao_toca_config_e_preserva_argumentos(tmp_path, monkeypatch):
-    from atlas_worker.gui.desktop import set_autostart, autostart_path
+    from atlas_worker.gui.desktop import set_autostart, autostart_path, desktop_quote
     monkeypatch.setattr("atlas_worker.gui.desktop.platform.system", lambda: "Linux")
     monkeypatch.setenv('XDG_CONFIG_HOME',str(tmp_path))
     path = tmp_path / 'pasta com espaço' / '.env'
     set_autostart(True,path)
     content = autostart_path().read_text()
-    assert '--start' in content and '"'+str(path)+'"' in content
+    assert '--start' in content and desktop_quote(str(path)) in content
     assert not path.exists()
     set_autostart(False,path)
     assert not autostart_path().exists()
