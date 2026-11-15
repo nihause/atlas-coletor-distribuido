@@ -6,11 +6,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+from collections import deque
 
 import httpx
 
-from . import __version__
+from . import CONTRATO, __version__
 from .checkpoint import Checkpoint
 from .client import ClientError, LeaseLost, NotFound, RadarClient, Rejected, ServerUnavailable, Unauthorized
 from .collectors.datajud import DataJud, LoteIncompleto
@@ -20,6 +20,7 @@ from .config import Settings
 from .heartbeat import Heartbeat
 from .metrics import Metrics, identidade_maquina
 from .tasks import Tarefa
+from .progress import Contexto
 
 log = logging.getLogger("atlas_worker")
 
@@ -28,13 +29,6 @@ class Devolver(Exception):
     """O servidor pausou/desativou este coletor: devolver a tarefa atual."""
 
 
-@dataclass
-class Contexto:
-    tarefa: Tarefa
-    lotes_ok: list[str] = field(default_factory=list)
-    itens_enviados: int = 0
-    inicio: float = field(default_factory=time.monotonic)
-    progresso: str = ""
 
 
 class Worker:
@@ -43,9 +37,15 @@ class Worker:
         self.metrics = Metrics()
         self.ck = Checkpoint(cfg.state_dir)
         self.parar = asyncio.Event()
+        self.erro_fatal: ClientError | None = None
+        self.drenando = False
+        self.atualizacao = {}
         self.pausado = False
         self.max_conc = cfg.max_concurrency
         self.ativas: dict[int, asyncio.Task] = {}
+        self.contextos: dict[int, Contexto] = {}
+        self.recentes = deque(maxlen=4)
+        self.espera = "Aguardando tarefas do Radar"
         self.lote_itens = cfg.batch_items
         self.ocioso_max = ocioso_max
         self.escala = escala_tempo   # só os testes mudam (acelera esperas e renovações)
@@ -53,7 +53,21 @@ class Worker:
         self._http_proprio = http_fontes is None
         self.lim_djen = Limitador(client, "djen", sleep)
         self.lim_dj = Limitador(client, "datajud", sleep)
-        self.hb = Heartbeat(client, self.metrics, cfg.heartbeat_interval, lambda: next(iter(self.ativas), None), self._receber_config, self._perdeu_acesso)
+        self.hb = Heartbeat(client, self.metrics, cfg.heartbeat_interval, lambda: next(iter(self.ativas), None), self._receber_config, self._perdeu_acesso, self.progresso_heartbeat, lambda: self.atualizacao)
+
+    def progresso_heartbeat(self) -> list[dict]:
+        return [{"id": ctx.tarefa.id, "progresso": ctx.progresso} for ctx in self.contextos.values()][:8]
+
+    def atualizar_progresso(self, ctx: Contexto, **dados):
+        ctx.fase = dados.get("fase", ctx.fase)
+        ctx.paginas = max(ctx.paginas, int(dados.get("paginas", ctx.paginas)))
+        for key, metric in [("lidos", "itens_lidos"), ("encontrados", "itens_encontrados")]:
+            delta = max(0, int(dados.get(key, 0)))
+            setattr(ctx, key, getattr(ctx, key) + delta)
+            setattr(self.metrics, metric, getattr(self.metrics, metric) + delta)
+        ctx.progresso = f"{ctx.fase} · {ctx.paginas} pág./consultas · {ctx.lidos} lidos · {ctx.encontrados} selecionados · {ctx.itens_enviados} confirmados"
+        if dados.get("lidos"):
+            log.info("tarefa %s: %s", ctx.tarefa.id, ctx.progresso)
 
     # ---- controle -----------------------------------------------------------------------------------------------------
     def _receber_config(self, c: dict) -> None:
@@ -69,6 +83,7 @@ class Worker:
         self.lote_itens = max(10, min(self.cfg.batch_items, int(c.get("lote_itens", self.cfg.batch_items))))
 
     def _perdeu_acesso(self) -> None:
+        self.erro_fatal = self.erro_fatal or Unauthorized("A chave não é mais aceita pelo Radar.")
         self.parar.set()
         for t in self.ativas.values():
             t.cancel()
@@ -76,6 +91,8 @@ class Worker:
     # ---- ciclo de vida ------------------------------------------------------------------------------------------------
     async def iniciar(self) -> None:
         cfg = await self.client.registrar({**identidade_maquina(), "versao": __version__, "nome": self.cfg.worker_name, "max_concorrencia": self.cfg.max_concurrency})
+        if cfg.get("contrato") != CONTRATO:
+            raise Rejected("Contrato da API incompatível. Atualize o coletor.", error_code="contrato_incompativel")
         self._receber_config(cfg)
         log.info("registrado como %s; comando do servidor: %s; até %d tarefas", self.cfg.worker_name, cfg.get("comando"), self.max_conc)
 
@@ -83,6 +100,7 @@ class Worker:
         try:
             await self.iniciar()
         except Unauthorized as e:
+            self.erro_fatal = e
             log.error("chave recusada pelo servidor (%s); encerrando. Confira WORKER_TOKEN ou peça uma nova chave", e)
             self.parar.set()
             if self._http_proprio:
@@ -93,6 +111,12 @@ class Worker:
             await self._retomar_pendentes()
             ocioso = 0
             while not self.parar.is_set():
+                if self.drenando:
+                    if not self.ativas:
+                        self.parar.set()
+                        break
+                    await self._dormir(0.5)
+                    continue
                 if self.pausado or len(self.ativas) >= self.max_conc:
                     await self._dormir(2)
                     if uma_rodada and not self.ativas:
@@ -100,10 +124,12 @@ class Worker:
                     continue
                 try:
                     r = await self.client.reservar(self.cfg.types)
-                except Unauthorized:
+                except Unauthorized as e:
+                    self.erro_fatal = e
                     log.error("chave não aceita; encerrando")
                     break
                 except ClientError as e:
+                    self.espera = "Aguardando nova tentativa de comunicação com o Radar"
                     log.warning("não foi possível pedir tarefa: %s", e)
                     await self._dormir(min(120, 5 * 2 ** min(ocioso, 4)))
                     ocioso += 1
@@ -112,6 +138,7 @@ class Worker:
                     self._receber_config({"comando": r["comando"]})
                 t = r.get("tarefa")
                 if not t:
+                    self.espera = str(r.get("motivo") or "Aguardando tarefas do Radar")[:200]
                     if uma_rodada and not self.ativas:
                         break
                     ocioso = min(ocioso + 1, 6)
@@ -119,6 +146,7 @@ class Worker:
                     continue
                 ocioso = 0
                 tarefa = Tarefa.model_validate(t)
+                self.metrics.tarefas_recebidas += 1
                 self.ativas[tarefa.id] = asyncio.create_task(self._executar(tarefa))
             await self._esperar_ativas()
         finally:
@@ -153,17 +181,22 @@ class Worker:
                 log.warning("não foi possível retomar a tarefa %s agora: %s", t["id"], e)
                 continue
             log.info("retomando a tarefa %s depois do reinício", t["id"])
+            self.metrics.tarefas_recebidas += 1
             self.ativas[t["id"]] = asyncio.create_task(self._executar(Tarefa.model_validate(t)))
 
     # ---- execução de uma tarefa -------------------------------------------------------------------------------------------
     async def _executar(self, tarefa: Tarefa) -> None:
         ctx = Contexto(tarefa, self.ck.carregar(tarefa.id))
+        self.contextos[tarefa.id] = ctx
+        self.atualizar_progresso(ctx)
         self.ck.salvar(tarefa.model_dump(mode="json"), ctx.lotes_ok)
         renovador = asyncio.create_task(self._renovar_enquanto(ctx))
         try:
             log.info("tarefa %s (%s) iniciada", tarefa.id, tarefa.tipo)
             resumo = await (self._djen(ctx) if tarefa.tipo == "djen_janela" else self._datajud(ctx))
+            self.atualizar_progresso(ctx, fase="Confirmando conclusão no Radar")
             await self.client.concluir(tarefa.id, tarefa.lease_token, resumo)
+            self.atualizar_progresso(ctx, fase="Concluída")
             self.metrics.tarefas_concluidas += 1
             self.ck.remover(tarefa.id)
             log.info("tarefa %s concluída: %s", tarefa.id, {k: v for k, v in resumo.items() if isinstance(v, (int, float))})
@@ -192,6 +225,10 @@ class Worker:
             await self._reportar(ctx, f"{type(e).__name__}: {e}", retentavel=True)
             self.ck.remover(tarefa.id)
         finally:
+            if ctx.fase != "Concluída":
+                self.atualizar_progresso(ctx, fase="Encerrada sem conclusão")
+            self.recentes.appendleft(ctx.snapshot())
+            self.contextos.pop(tarefa.id, None)
             renovador.cancel()
             self.ativas.pop(tarefa.id, None)
 
@@ -225,33 +262,42 @@ class Worker:
     # ---- tipos de tarefa ---------------------------------------------------------------------------------------------------
     async def _djen(self, ctx: Contexto) -> dict:
         p = ctx.tarefa.djen()
-        d = Djen(self.lim_djen, self.http, self.lote_itens)
+        progresso = lambda **dados: self.atualizar_progresso(ctx, **dados)
+        limite = Limitador(self.client, "djen", self._sleep, progresso=progresso)
+        d = Djen(limite, self.http, self.lote_itens, progresso=progresso)
         async for chave, lote in d.janela(p):
             self._checar_pausa()
             if chave in ctx.lotes_ok:
                 ctx.itens_enviados += len(lote)
+                self.atualizar_progresso(ctx, fase="Lote já confirmado em execução anterior")
                 continue   # o servidor já confirmou este lote antes do reinício
+            self.atualizar_progresso(ctx, fase="Enviando lote ao Radar")
             await self.client.resultados(ctx.tarefa.id, ctx.tarefa.lease_token, chave, lote)   # só segue depois do persistido=true
             ctx.lotes_ok.append(chave)
             ctx.itens_enviados += len(lote)
             self.metrics.itens_enviados += len(lote)
-            ctx.progresso = f"{d.paginas} páginas, {ctx.itens_enviados} itens"
+            self.atualizar_progresso(ctx, fase="Lote confirmado pelo Radar")
             self.ck.salvar(ctx.tarefa.model_dump(mode="json"), ctx.lotes_ok)
-        self.metrics.requisicoes["djen"] += self.lim_djen.requisicoes
+        self.metrics.requisicoes["djen"] += limite.requisicoes
         return {"itens_enviados": ctx.itens_enviados, "total_itens": d.total_itens, "paginas": d.paginas, "dividida": d.dividida, "duracao_s": int(time.monotonic() - ctx.inicio)}
 
     async def _datajud(self, ctx: Contexto) -> dict:
         p = ctx.tarefa.datajud()
         if not self.cfg.datajud_api_key.get_secret_value():
             raise Rejected("DATAJUD_API_KEY não configurada neste computador")
-        regs, nao = await DataJud(self.lim_dj, self.http, self.cfg.datajud_api_key.get_secret_value()).lote(p)
+        progresso = lambda **dados: self.atualizar_progresso(ctx, **dados)
+        limite = Limitador(self.client, "datajud", self._sleep, progresso=progresso)
+        regs, nao = await DataJud(limite, self.http, self.cfg.datajud_api_key.get_secret_value(), progresso=progresso).lote(p)
         for i in range(0, len(regs), 25):
             self._checar_pausa()
             chave = f"d{i // 25}-{len(regs[i:i + 25])}"
             if chave not in ctx.lotes_ok:
+                self.atualizar_progresso(ctx, fase="Enviando lote ao Radar")
                 await self.client.resultados(ctx.tarefa.id, ctx.tarefa.lease_token, chave, regs[i:i + 25])
                 ctx.lotes_ok.append(chave)
+                self.metrics.itens_enviados += len(regs[i:i + 25])
                 self.ck.salvar(ctx.tarefa.model_dump(mode="json"), ctx.lotes_ok)
             ctx.itens_enviados += len(regs[i:i + 25])
-        self.metrics.requisicoes["datajud"] += self.lim_dj.requisicoes
+            self.atualizar_progresso(ctx, fase="Lote confirmado pelo Radar")
+        self.metrics.requisicoes["datajud"] += limite.requisicoes
         return {"encontrados": sorted({r["numero_cnj"] for r in regs}), "nao_localizados": nao, "itens_enviados": ctx.itens_enviados}

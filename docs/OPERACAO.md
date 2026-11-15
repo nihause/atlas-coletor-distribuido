@@ -1,5 +1,10 @@
 # Operação e diagnóstico
 
+## Interface gráfica Ubuntu
+
+Abra **ATLAS — Coletor Distribuído** no menu. Configuração, teste de conexão, iniciar/parar/reiniciar e diagnóstico ficam na janela. Veja [Aplicativo Linux](APLICATIVO-LINUX.md). Para migrar um serviço antigo, pare-o antes de conectar pela interface; os dois modos não devem operar a mesma identidade/estado simultaneamente. O pacote não altera serviços existentes.
+
+
 ## Ver o que o coletor está fazendo
 - Linux (serviço): `journalctl -u atlas-worker -f`. Sem serviço: saída do terminal. Arquivo: `~/.local/share/atlas-worker/logs/worker.log` (Windows: `%LOCALAPPDATA%\atlas-worker\logs`). O token nunca aparece nos logs.
 - No Radar: **Administração → Coletores** (situação, último sinal, tarefa atual e há quanto tempo, CPU/memória, produtividade da última hora, erros) e **Buscas → Fila de monitoramento**.

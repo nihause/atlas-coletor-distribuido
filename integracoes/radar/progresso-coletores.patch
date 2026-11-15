@@ -1,0 +1,186 @@
+--- a/radar/lib/coletores.php
++++ b/radar/lib/coletores.php
+@@ -140,6 +140,17 @@
+     $p->prepare('UPDATE coletores SET ultimo_sinal_em=NOW(), cpu_pct=?, mem_pct=?, versao=COALESCE(?,versao), tarefa_id=?, erros=GREATEST(erros,?) WHERE id=?')
+       ->execute([isset($d['cpu_pct']) ? max(0, min(999, (float) $d['cpu_pct'])) : null, isset($d['mem_pct']) ? max(0, min(100, (float) $d['mem_pct'])) : null, isset($d['versao']) ? mb_substr((string) $d['versao'], 0, 40) : null,
+         isset($d['tarefa_id']) ? (int) $d['tarefa_id'] : null, (int) ($d['erros'] ?? 0), $id]);
++    // Telemetria opcional no contrato 1; nunca renova reserva nem altera contadores confirmados.
++    $progressos=$d['progresso_tarefas']??[];
++    if(is_array($progressos)){
++        $atualizar=$p->prepare("UPDATE coletor_tarefas SET progresso=? WHERE id=? AND coletor_id=? AND status='reservada' AND lease_ate>=NOW()");
++        foreach(array_slice($progressos,0,8) as $progresso){
++            if(!is_array($progresso)||!is_int($progresso['id']??null)||$progresso['id']<=0||!is_string($progresso['progresso']??null))continue;
++            $texto=preg_replace('/[\x00-\x1F\x7F]/u',' ', $progresso['progresso']);
++            if($texto===null)continue;
++            $atualizar->execute([mb_substr($texto,0,200),$progresso['id'],$id]);
++        }
++    }
+     return coletor_configuracao($p, $id);
+ }
+ 
+@@ -167,6 +178,15 @@
+ 
+ function coletor_criar_tarefa(PDO $p, string $tipo, string $coletor, array $params, ?int $coleta, ?int $fila): array
+ {
++    if($tipo==='djen_janela'&&isset($params['favorito']['tipo'],$params['favorito']['ref_id'])){
++        $sql=match($params['favorito']['tipo']){
++            'parte'=>'SELECT razao_social FROM empresas WHERE id=?',
++            'advogado'=>'SELECT nome FROM advogados WHERE id=?',
++            'comarca','vara'=>'SELECT comarca FROM varas WHERE id=?',
++            default=>null,
++        };
++        if($sql!==null){$rotulo=$p->prepare($sql);$rotulo->execute([(int)$params['favorito']['ref_id']]);$nome=$rotulo->fetchColumn();if(is_string($nome)&&$nome!=='')$params['descricao']=mb_substr($nome,0,180);}
++    }
+     $tok = bin2hex(random_bytes(16));
+     $p->prepare('INSERT INTO coletor_tarefas (tipo, coleta_id, fila_id, params, coletor_id, lease_token, lease_ate) VALUES (?,?,?,?,?,?,DATE_ADD(NOW(), INTERVAL ' . COLETOR_LEASE_S . ' SECOND))')
+       ->execute([$tipo, $coleta, $fila, json_encode($params, JSON_UNESCAPED_UNICODE), $coletor, $tok]);
+--- a/radar/buscas/fila.php
++++ b/radar/buscas/fila.php
+@@ -3,6 +3,7 @@
+ require __DIR__ . '/../lib/bootstrap.php';
+ require __DIR__ . '/../lib/fila_monitoramento.php';
+ require __DIR__ . '/../lib/fila_painel.php';
++require __DIR__ . '/../lib/fila_coletores.php';
+ $u = require_login();
+ 
+ // Ações: pausar/retomar um monitoramento; gerar a fila do dia agora (o cron faz isso às 00:00).
+@@ -37,8 +38,13 @@
+  WHEN 'parte' THEN (SELECT razao_social FROM empresas WHERE id=c.ref_id)
+  WHEN 'advogado' THEN (SELECT nome FROM advogados WHERE id=c.ref_id)
+  ELSE (SELECT CONCAT('Comarca de ',comarca) FROM varas WHERE id=c.ref_id) END nome,
+- q.status tarefa_status,q.tentativas FROM coleta_favoritos c JOIN fila_monitoramento q ON q.coleta_id=c.id
++ q.id fila_id,q.worker_pid,q.status tarefa_status,q.tentativas FROM coleta_favoritos c JOIN fila_monitoramento q ON q.coleta_id=c.id
+  WHERE c.ativo=1 AND q.status IN ('pendente','rodando','erro') ORDER BY (q.status='rodando') DESC,q.prioridade,c.ultima_execucao,q.id",[],'lista')??[];
++// Trabalho remoto tem leitura própria antes dos indicadores grandes da base.
++$remotos=$painel->ler('Coletores em execução',FILA_COLETORES_ATIVOS_SQL,[],'lista')??[];
++$remotosPorFila=[];$nomesPorColeta=[];
++foreach($mon as $m)$nomesPorColeta[(int)$m['id']]=$m['nome']?:('#'.$m['ref_id']);
++foreach($remotos as $t)if($t['fila_id'])$remotosPorFila[(int)$t['fila_id']]=$t;
+ // "Consultar depois": tarefas abertas que travaram ou falharam; ficam no fim da fila e só voltam após a espera.
+ $depois=$painel->ler('Consultar depois',"SELECT c.id,c.tipo,c.ref_id,c.buscado_ate,CASE c.tipo
+  WHEN 'parte' THEN (SELECT razao_social FROM empresas WHERE id=c.ref_id)
+@@ -100,8 +106,26 @@
+ <?php if($painel->falhas): ?>
+ <div class="ds-alert ds-alert--warning" role="status"><strong>Alguns dados estão temporariamente indisponíveis.</strong><p>Não foi possível carregar: <?= e(implode(', ',array_keys($painel->falhas))) ?>. Os demais blocos continuam disponíveis. A tela tentará novamente em 15 segundos.</p><a class="ds-btn ds-btn--secondary ds-btn--sm" href="<?= BASE ?>/buscas/fila.php<?= $sel?'?id='.$sel:'' ?>">Tentar novamente agora</a></div>
+ <?php endif; ?>
+-  <div class="ds-page-head"><div><h1 class="ds-h2">Fila de monitoramento</h1><p class="ds-text-muted">Buscas diárias dos favoritos no DJEN, com até 4 trabalhadores simultâneos, desde <?= e(format_date($inicio)) ?>. Atualiza sozinha a cada 15 s.</p></div>
++  <div class="ds-page-head"><div><h1 class="ds-h2">Fila de monitoramento</h1><p class="ds-text-muted">Buscas dos favoritos por trabalhadores do servidor e coletores Atlas, desde <?= e(format_date($inicio)) ?>. Atualiza sozinha a cada 15 s.</p></div>
+     <form method="post"><?= csrf_field() ?><input type="hidden" name="acao" value="gerar"><button class="ds-btn ds-btn--secondary" type="submit" title="A fila é gerada às 00:00 (horário de Brasília); isto força agora">Gerar fila do dia agora</button></form></div>
++
++<section class="ds-dashboard__section" aria-labelledby="fila-remotos-titulo">
++  <h2 class="ds-h3" id="fila-remotos-titulo">Coletores trabalhando agora</h2>
++  <div class="fila-coleta-cards">
++<?php foreach($remotos as $t): ?>
++    <article class="ds-card fila-coleta-card">
++      <h3 class="ds-h3"><?= e(fila_executor_texto([], $t)) ?></h3>
++      <p><strong><?= $t['tipo']==='djen_janela'?'DJEN':'DataJud' ?></strong> · tarefa #<?= (int)$t['id'] ?></p>
++      <p><?= e($t['tipo']==='djen_janela'?($nomesPorColeta[(int)$t['coleta_id']]??('Favorito #'.$t['coleta_id'])):((string)$t['tribunal'].' · '.(int)$t['processos_lote'].' processos')) ?><?php if($t['periodo_de']): ?> · <?= e(format_date($t['periodo_de'])) ?> até <?= e(format_date($t['periodo_ate'])) ?><?php endif; ?></p>
++      <p><?= e($t['progresso']?:'Reserva ativa. Aguardando o próximo progresso do coletor.') ?></p>
++      <p class="ds-text-sm ds-text-muted"><?= $n($t['itens_recebidos']) ?> itens recebidos e confirmados pelo Radar · <?= $n($t['itens_aceitos']) ?> aceitos · <?= $n($t['novos']) ?> processos novos</p>
++      <p class="ds-text-sm ds-text-muted">Desde <?= e($dt($t['reservada_em'])) ?> · último sinal <?= e($dt($t['ultimo_sinal_em'])) ?></p>
++    </article>
++<?php endforeach; if(!$remotos): ?>
++    <p class="ds-text-sm ds-text-muted"><?= isset($painel->falhas['Coletores em execução'])?'Não foi possível consultar os coletores agora.':'Nenhuma reserva ativa de coletor remoto neste momento. As tarefas locais aparecem na fila abaixo.' ?></p>
++<?php endif; ?>
++  </div>
++</section>
+ 
+ <?php if($supervisaoFila): ?>
+ <p class="ds-text-sm ds-text-muted">Vigia da fila: verificação automática a cada 5 minutos. Última verificação: <?= e($dt($supervisaoFila['verificado_em']??null)) ?>. <?= e($supervisaoFila['acao']??'') ?></p>
+@@ -153,7 +177,7 @@
+ <?php foreach ($mon as $m): $r = $rotTarefa[$m['tarefa_status'] ?? ''] ?? ['—', 'info']; $pg = $progresso($m); ?>
+       <tr><th scope="row"><a class="ds-link" href="<?= BASE ?>/buscas/fila.php?id=<?= (int) $m['id'] ?>"><?= e($m['nome'] ?: ('#' . $m['ref_id'])) ?></a><?php if ($m['erro'] && $m['status'] === 'erro'): ?><span class="dash-erro"><?= e($m['erro']) ?></span><?php endif; ?></th>
+         <td><?= e($tipos[$m['tipo']] ?? $m['tipo']) ?></td>
+-        <td><?php if (!(int) $m['ativo']): ?><span class="ds-badge">Pausado</span><?php else: ?><span class="ds-badge ds-badge--<?= e($r[1]) ?>"><?= e($r[0]) ?></span><?php if ((int) $m['tentativas'] > 0 && $m['tarefa_status'] !== 'concluida'): ?> <span class="ds-text-sm ds-text-muted"><?= (int) $m['tentativas'] ?> tent.</span><?php endif; endif; ?></td>
++        <td><?php if (!(int) $m['ativo']): ?><span class="ds-badge">Pausado</span><?php else: ?><span class="ds-badge ds-badge--<?= e($r[1]) ?>"><?= e($r[0]) ?></span><?php $remoto=$remotosPorFila[(int)$m['fila_id']]??null;$executor=fila_executor_texto($m,$remoto);if($executor!==''): ?><span class="dash-erro"><?= e($executor) ?></span><?php endif;if($remoto): ?><span class="dash-erro"><?= e($remoto['progresso']?:'Aguardando progresso do coletor') ?> · <?= $n($remoto['itens_recebidos']) ?> confirmados</span><?php endif; ?><?php if ((int) $m['tentativas'] > 0 && $m['tarefa_status'] !== 'concluida'): ?> <span class="ds-text-sm ds-text-muted"><?= (int) $m['tentativas'] ?> tent.</span><?php endif; endif; ?></td>
+         <td><?= e(fila_verificado_ate((string) $m['tipo'], $m['buscado_ate'])) ?></td>
+         <td><div class="ds-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="<?= $pg ?>" title="<?= $pg ?>%"><span style="width:<?= $pg ?>%"></span></div></td>
+         <td><?= e($dt($m['ultima_execucao'])) ?></td>
+--- a/src/design/components.css
++++ b/src/design/components.css
+@@ -815,3 +815,8 @@
+ .coletores-programas { display: grid; gap: var(--space-sm); }
+ .coletores-cartao pre { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; background: var(--color-surface-sunken); padding: var(--space-md); border-radius: var(--radius-sm); max-width: 100%; }
+ .coletores-cartao code { white-space: pre-wrap; overflow-wrap: anywhere; }
++
++/* Trabalho remoto na fila: leitura vertical, sem ampliar a tabela. */
++.fila-coleta-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); gap: var(--space-md); }
++.fila-coleta-card { padding: var(--space-md); min-width: 0; overflow-wrap: anywhere; }
++.fila-coleta-card h3 { margin-top: 0; }
+--- /dev/null
++++ b/radar/lib/fila_coletores.php
+@@ -0,0 +1,18 @@
++<?php
++declare(strict_types=1);
++// Somente reservas ativas, pelo índice de status; nunca consulta o acervo de processos.
++const FILA_COLETORES_ATIVOS_SQL="SELECT t.id,t.tipo,t.fila_id,t.coleta_id,t.coletor_id,c.nome coletor_nome,
++ t.progresso,t.itens_recebidos,t.itens_aceitos,t.novos,t.reservada_em,c.ultimo_sinal_em,
++ JSON_UNQUOTE(JSON_EXTRACT(t.params,'$.de')) periodo_de,JSON_UNQUOTE(JSON_EXTRACT(t.params,'$.ate')) periodo_ate,
++ JSON_UNQUOTE(JSON_EXTRACT(t.params,'$.tribunal')) tribunal,JSON_LENGTH(JSON_EXTRACT(t.params,'$.cnjs')) processos_lote
++ FROM coletor_tarefas t JOIN coletores c ON c.id=t.coletor_id
++ WHERE t.status='reservada' AND t.lease_ate>=NOW() ORDER BY t.id LIMIT 50";
++function fila_executor_texto(array $tarefa,?array $remoto): string
++{
++ if($remoto){
++  $id=(string)$remoto['coletor_id'];$nome=trim((string)($remoto['coletor_nome']??''));
++  return 'Em execução pelo coletor '.$id.($nome!==''&&$nome!==$id?' · '.$nome:'');
++ }
++ if(($tarefa['tarefa_status']??$tarefa['status']??'')!=='rodando')return '';
++ return !empty($tarefa['worker_pid'])?'Em execução no servidor Radar · trabalhador '.(int)$tarefa['worker_pid']:'Aguardando confirmação do executor';
++}
+--- /dev/null
++++ b/tests/coletores-progresso.php
+@@ -0,0 +1,26 @@
++<?php
++// Telemetria e identificação sem reservar trabalho real. Somente tabelas temporárias.
++declare(strict_types=1);
++require __DIR__.'/../radar/lib/cli.php';require __DIR__.'/../radar/lib/coletores.php';require __DIR__.'/../radar/lib/fila_coletores.php';
++$p=db();$n=0;$ok=function(bool $v,string $m)use(&$n){++$n;if(!$v)throw new RuntimeException('FALHOU: '.$m);};
++foreach(['coletores','coletor_tarefas','coleta_rotina_config'] as $t){$p->exec("CREATE TEMPORARY TABLE copia_prog_$t LIKE $t");$p->exec("CREATE TEMPORARY TABLE $t LIKE copia_prog_$t");$p->exec("DROP TEMPORARY TABLE copia_prog_$t");}
++coletor_registrar($p,'pc-teste-a',['nome'=>'Computador Alpha'],11);coletor_registrar($p,'pc-teste-b',[],12);
++$params=['de'=>'2026-11-01','ate'=>'2026-11-07'];$a=coletor_criar_tarefa($p,'djen_janela','pc-teste-a',$params,1,7)['tarefa'];$b=coletor_criar_tarefa($p,'djen_janela','pc-teste-b',$params,2,8)['tarefa'];
++$exp=coletor_criar_tarefa($p,'djen_janela','pc-teste-a',$params,3,9)['tarefa'];$done=coletor_criar_tarefa($p,'datajud_lote','pc-teste-a',['tribunal'=>'TJPR','cnjs'=>['00000000000000000001']],null,null)['tarefa'];
++$p->exec("UPDATE coletor_tarefas SET lease_ate=NOW()-INTERVAL 1 SECOND WHERE id=".(int)$exp['id']);$p->exec("UPDATE coletor_tarefas SET status='concluida' WHERE id=".(int)$done['id']);
++$antes=$p->query('SELECT lease_ate FROM coletor_tarefas WHERE id='.(int)$a['id'])->fetchColumn();
++$r=coletor_heartbeat($p,'pc-teste-a',['progresso_tarefas'=>[['id'=>$a['id'],'progresso'=>'DJEN: 3 páginas, 250 lidos'],['id'=>$b['id'],'progresso'=>'Não pode mudar outra máquina'],['id'=>$exp['id'],'progresso'=>'Não pode mudar expirada'],['id'=>$done['id'],'progresso'=>'Não pode mudar concluída']]],11);
++$rows=$p->query('SELECT id,progresso,itens_recebidos,lease_ate FROM coletor_tarefas')->fetchAll(PDO::FETCH_UNIQUE|PDO::FETCH_ASSOC);
++$ok($rows[$a['id']]['progresso']==='DJEN: 3 páginas, 250 lidos','Progresso de tarefa própria atualizado');
++$ok($rows[$b['id']]['progresso']===null,'Outra máquina protegida');$ok($rows[$exp['id']]['progresso']===null,'Reserva vencida protegida');$ok($rows[$done['id']]['progresso']===null,'Tarefa concluída protegida');
++$ok($rows[$a['id']]['lease_ate']===$antes&&(int)$rows[$a['id']]['itens_recebidos']===0,'Telemetria não renova reserva nem inventa itens confirmados');$ok($r['contrato']===1,'Contrato permanece 1');
++coletor_heartbeat($p,'pc-teste-a',['progresso_tarefas'=>[['id'=>$a['id'],'progresso'=>str_repeat('ç',220)."\n"],['id'=>[], 'progresso'=>[]]]],11);
++$texto=$p->query('SELECT progresso FROM coletor_tarefas WHERE id='.(int)$a['id'])->fetchColumn();$ok(mb_strlen($texto)===200&&!str_contains($texto,"\n"),'Texto limitado e sanitizado');
++coletor_heartbeat($p,'pc-teste-a',[],11);$ok($p->query('SELECT progresso FROM coletor_tarefas WHERE id='.(int)$a['id'])->fetchColumn()===$texto,'Clientes antigos não apagam progresso');
++$list=$p->query(FILA_COLETORES_ATIVOS_SQL)->fetchAll();$ok(count($list)===2,'Painel exclui reservas vencidas e concluídas');
++$ok(!array_key_exists('lease_token',$list[0])&&!array_key_exists('token_hash',$list[0]),'Leitura pública não traz credenciais');
++$ok(str_contains(fila_executor_texto([], $list[0]),'pc-teste-a')&&str_contains(fila_executor_texto([], $list[0]),'Computador Alpha'),'Nome e identificador do executor');
++$ok(fila_executor_texto(['status'=>'rodando','worker_pid'=>42],null)==='Em execução no servidor Radar · trabalhador 42','Trabalhador local identificado');
++$ok(fila_executor_texto(['status'=>'pendente'],null)==='','Pendente não é apresentada como coleta ativa');
++$ok(fila_executor_texto(['status'=>'rodando'],null)==='Aguardando confirmação do executor','Sem PID não inventa executor local');
++echo "$n verificações de progresso e executor aprovadas em tabelas temporárias.\n";
+--- /dev/null
++++ b/docs/progresso-coletores.md
+@@ -0,0 +1,24 @@
++# Progresso da coleta — Atlas 0.2.1 e Radar
++
++O painel Atlas mostra o alvo e período de cada tarefa, fonte, fase, páginas/consultas, itens lidos na fonte, encontrados após filtros e confirmados pelo Radar. Os números de execução começam ao conectar; tarefas recentes permanecem no painel. Lidos não significa aceitos: a confirmação só aumenta após a resposta do servidor. Enquanto a fonte pagina, o progresso aparece mesmo antes do primeiro envio.
++
++O botão fica desativado e indica Conectando, Coletando, Aguardando tarefas, Pausado ou Parando. Para encerrar, use Parar coleta. Esperas por limite da API aparecem na fase; os limites e a prioridade dos favoritos continuam iguais.
++
++No Radar, /radar/buscas/fila.php exibe cartões de reservas ativas e identifica o coletor por ID e nome também na linha da fila. Os contadores recebidos/aceitos/novos vêm do servidor. A tela atualiza a cada 15 segundos; a fase remota chega pelo heartbeat, portanto não é instantânea. Clientes antigos continuam funcionando, mas não enviam o detalhamento novo. Reservas expiradas não aparecem como ativas.
++
++O heartbeat aceita progresso_tarefas opcional (até oito tarefas); cada atualização exige reserva vigente pertencente ao coletor autenticado. A telemetria não renova lease nem altera os contadores confirmados. Contrato permanece 1. Novas tarefas DJEN podem trazer descricao opcional do favorito; tarefas antigas usam os campos existentes.
++
++## Atualizar o outro computador
++
++1. No PC1, clique em Parar coleta e aguarde; feche o Atlas.
++2. Instale atlas-coletor_0.2.1_ubuntu24.04_amd64.deb pelo instalador do Ubuntu 24.04 amd64.
++3. Abra ATLAS — Coletor Distribuído pelo menu. Mantenha o .env existente e a chave vigente. Clique em Conectar e iniciar.
++4. Confira alvo, fase e contadores no aplicativo e nome do coletor na fila do Radar. Se não houver tarefa, Aguardando tarefas é normal.
++
++Pacote e SHA-256 locais em /home/justisoft/Downloads/atlas-coletor/. A branch de desenvolvimento oferece artifact no GitHub Actions; ainda não existe Release desta versão. Não executar CLI/serviço antigo junto com a GUI.
++
++## Validação e reprodução
++
++Atlas: 81 testes aprovados, incluindo paginação antes do primeiro lote, confirmação após resposta, heartbeat e estados reais Qt offscreen. Radar: 112 verificações aprovadas (progresso 14, servidor 47, administração 41, Authorization 10). Consulta de reservas medida em 2,18 ms com duas tarefas; não consulta processos. Não foi feita coleta real, instalação no PC1, nem teste visual interativo no desktop do usuário.
++
++O Radar neste servidor não possui Git. A integração PHP aplicada está registrada no repositório Atlas em integracoes/radar/progresso-coletores.patch, com caminhos relativos à raiz do Radar. O patch é para auditoria/replicação; NÃO reaplicar no servidor já atualizado. Revisar com git apply --check em outra cópia compatível antes de aplicar. Nenhuma migração é necessária.

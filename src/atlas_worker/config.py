@@ -54,6 +54,8 @@ class Settings(BaseSettings):
         u = urlparse(self.radar_api_url)
         if u.scheme not in ("https", "http") or not u.netloc:
             raise ValueError("RADAR_API_URL inválida")
+        if u.username or u.password or u.query or u.fragment:
+            raise ValueError("RADAR_API_URL não pode conter credenciais, parâmetros ou fragmentos")
         loopback = (u.hostname or "") in ("127.0.0.1", "localhost", "::1")
         if u.scheme == "http" and not (self.allow_insecure_http and loopback):
             raise ValueError("RADAR_API_URL deve usar HTTPS (http só com ALLOW_INSECURE_HTTP=1 e endereço local, para testes)")

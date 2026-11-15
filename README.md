@@ -1,3 +1,5 @@
+> Atualização 0.2.2: consulte [atualizações e publicação](docs/ATUALIZACOES.md). Este guia substitui as instruções anteriores de atualização por simples checksum/abertura manual.
+
 # atlas-coletor-distribuido
 
 Coletor distribuído do ecossistema **Atlas/Radar**. Cada computador conectado roda um *worker* Python que pede tarefas ao servidor central (o Radar), executa as consultas autorizadas e devolve os resultados em lotes. **O worker nunca acessa o banco de dados**: só fala com uma API HTTPS autenticada.
@@ -22,9 +24,19 @@ O servidor decide o que cada computador faz e redistribui conforme a disponibili
 
 O limite de requisições às fontes (DJEN, DataJud) é **global**: o worker pergunta ao servidor quanto esperar antes de cada chamada, e o limite vale para todos os computadores somados. 429, `Retry-After` e falhas das fontes são relatados ao servidor, que aplica espera crescente e disjuntor. A descoberta geral de processos continua **desligada**.
 
+## Aplicativo gráfico no Ubuntu 24.04
+
+Abra o pacote **atlas-coletor_0.2.2_ubuntu24.04_amd64.deb** no instalador do Ubuntu. Depois, procure **ATLAS — Coletor Distribuído** no menu de aplicativos. Python e Qt acompanham o pacote.
+
+Na aba **Configuração**, informe o endereço `https://justisoft.com.br/radar/api/v1`, o nome e a chave individual criada em **Radar → Administração → Coletores**. Clique em **Testar conexão** e depois **Conectar e iniciar**. A tela mostra tarefas, conexão, produtividade e logs sem precisar de terminal. A chave DataJud tem campo próprio, caso este computador execute tarefas DataJud.
+
+Para reutilizar uma instalação, escolha **Abrir .env existente**. As opções extras e os dados locais são preservados. Inicialização automática na sessão Ubuntu e permanência na bandeja são opcionais. A aba **Atualizações** consulta Releases do repositório privado, confere SHA-256 e abre o instalador após confirmação. O mantenedor deve publicar o primeiro Release; branches de desenvolvimento oferecem pacote como artifact do workflow.
+
+Veja [Aplicativo Linux](docs/APLICATIVO-LINUX.md) para instalação, migração, atualização, diagnóstico, empacotamento e limites dos testes. Para desenvolver: `pip install -e ".[gui,dev,build-gui]"`; para abrir: `atlas-coletor`. O modo terminal abaixo continua disponível e usa o mesmo motor e contrato de API.
+
 ## Instalar em um computador
 
-Pré-requisitos: Python 3.11+, Git, e uma **chave de API exclusiva deste computador** (no Radar: Administração → API → criar integração com a permissão **Ingestão**; a chave aparece uma única vez).
+Pré-requisitos para o modo terminal: Python 3.11+, Git, e uma **chave de API exclusiva deste computador** (no Radar: Administração → Coletores → Adicionar coletor; a chave aparece uma única vez).
 
 ### Ubuntu / Linux
 ```bash
@@ -90,3 +102,5 @@ Documentação: [`docs/CONTRATO-API.md`](docs/CONTRATO-API.md) (rotas e contrato
 - Sem acesso ao MySQL; só API autenticada sobre HTTPS com certificado validado.
 - Sem contorno de CAPTCHA, bloqueio ou limite das fontes; só consultas oficiais e públicas, dentro do limite global.
 - Registros sigilosos (nível de sigilo > 0) não saem do computador.
+
+Progresso e atualização do PC1: [guia da versão 0.2.1](docs/PROGRESSO-COLETA.md).

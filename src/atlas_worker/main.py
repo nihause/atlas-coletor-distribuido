@@ -31,27 +31,19 @@ def carregar(env_file: str | None) -> Settings:
 
 async def verificar(cfg: Settings) -> int:
     """Confere URL, TLS, chave e contrato, sem pedir nem executar tarefa. Saída 0 = pronto."""
-    c = RadarClient(cfg)
-    try:
-        print(f"Servidor: {cfg.base_url}  ({'HTTPS' if cfg.base_url.startswith('https') else 'HTTP local de teste'})")
-        r = await c.registrar({**identidade_maquina(), "nome": cfg.worker_name, "versao": __version__})
-        print(f"Autenticação: ok   Coletor: {cfg.worker_name}   Contrato: {r.get('contrato')} (este coletor: {CONTRATO})   Comando atual: {r.get('comando')}")
+    from .verification import check_connection
+    result = await check_connection(cfg, RadarClient)
+    print(f"Servidor: {cfg.base_url}")
+    print(result.message, file=sys.stdout if result.code == 0 else sys.stderr)
+    print(result.detail, file=sys.stdout if result.code == 0 else sys.stderr)
+    if result.code == 0:
+        r = result.data
+        print(f"Autenticação: ok   Coletor: {cfg.worker_name}   Contrato: {CONTRATO}   Comando atual: {r.get('comando')}")
         lim = r.get("limites", {})
-        print(f"Limites globais: DataJud {lim.get('datajud_min', '?')}/min, DJEN remoto {lim.get('djen_min', '?')}/min   Tarefas simultâneas: {r.get('max_concorrencia')}")
-        if r.get("contrato") != CONTRATO:
-            print("ATENÇÃO: contrato diferente; atualize o coletor (scripts/atualizar-linux.sh)", file=sys.stderr)
-            return 3
+        print(f"Limites globais: DataJud {lim.get('datajud_min', '?')}/min, DJEN remoto {lim.get('djen_min', '?')}/min")
         if "datajud_lote" in cfg.types and not cfg.datajud_api_key.get_secret_value():
             print("Aviso: DATAJUD_API_KEY vazia; tarefas datajud_lote serão recusadas neste computador.")
-        return 0
-    except Unauthorized as e:
-        print(f"Chave recusada pelo servidor: {e}", file=sys.stderr)
-        return 4
-    except ClientError as e:
-        print(f"Não foi possível falar com o servidor: {e}", file=sys.stderr)
-        return 5
-    finally:
-        await c.aclose()
+    return result.code
 
 
 async def rodar(cfg: Settings, uma_rodada: bool) -> None:
@@ -65,6 +57,8 @@ async def rodar(cfg: Settings, uma_rodada: bool) -> None:
         await w.rodar(uma_rodada)
     finally:
         await client.aclose()
+        if w._http_proprio:
+            await w.http.aclose()
 
 
 def cli(argv: list[str] | None = None) -> None:
@@ -83,7 +77,13 @@ def cli(argv: list[str] | None = None) -> None:
     setup(cfg.log_level, cfg.state_dir, [cfg.worker_token.get_secret_value(), cfg.datajud_api_key.get_secret_value()])
     if a.cmd == "verificar":
         raise SystemExit(asyncio.run(verificar(cfg)))
-    asyncio.run(rodar(cfg, a.uma_rodada))
+    from .instance import AlreadyRunning, RunLock
+    try:
+        with RunLock(cfg):
+            asyncio.run(rodar(cfg, a.uma_rodada))
+    except AlreadyRunning as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(6)
 
 
 if __name__ == "__main__":
