@@ -1,6 +1,6 @@
 > A partir de 0.2.3, a chave pública do DataJud vem preenchida automaticamente; chaves personalizadas são preservadas. Veja [o comportamento](docs/DATAJUD-PUBLICO.md).
 
-> Versão oficial: [Atlas 0.2.3](https://github.com/nihause/atlas-coletor-distribuido/releases/tag/v0.2.3) · [Baixar instalador Ubuntu 24.04 amd64](https://github.com/nihause/atlas-coletor-distribuido/releases/download/v0.2.3/atlas-coletor_0.2.3_ubuntu24.04_amd64.deb). Repositório público, sem token GitHub. Quem usa 0.2.1 deve instalar o 0.2.3 uma vez para obter o novo atualizador assinado; mantenha seu .env e sua chave Radar.
+> Instaladores 0.2.4: [Windows x64 (.exe)](https://github.com/nihause/atlas-coletor-distribuido/releases/download/v0.2.4/atlas-coletor_0.2.4_windows_amd64.exe) · [Ubuntu 24.04 x64 (.deb)](https://github.com/nihause/atlas-coletor-distribuido/releases/download/v0.2.4/atlas-coletor_0.2.4_ubuntu24.04_amd64.deb). Python e Qt incluídos. Consulte [instalação Windows/Linux](docs/windows-linux.md). Repositório público, sem token GitHub.
 
 > Atualização 0.2.2: consulte [atualizações e publicação](docs/ATUALIZACOES.md). Este guia substitui as instruções anteriores de atualização por simples checksum/abertura manual.
 
@@ -28,9 +28,9 @@ O servidor decide o que cada computador faz e redistribui conforme a disponibili
 
 O limite de requisições às fontes (DJEN, DataJud) é **global**: o worker pergunta ao servidor quanto esperar antes de cada chamada, e o limite vale para todos os computadores somados. 429, `Retry-After` e falhas das fontes são relatados ao servidor, que aplica espera crescente e disjuntor. A descoberta geral de processos continua **desligada**.
 
-## Aplicativo gráfico no Ubuntu 24.04
+## Aplicativo gráfico no Windows e Ubuntu 24.04
 
-Abra o pacote **atlas-coletor_0.2.2_ubuntu24.04_amd64.deb** no instalador do Ubuntu. Depois, procure **ATLAS — Coletor Distribuído** no menu de aplicativos. Python e Qt acompanham o pacote.
+No Windows, execute o **atlas-coletor_0.2.4_windows_amd64.exe**. No Ubuntu, abra o pacote **atlas-coletor_0.2.4_ubuntu24.04_amd64.deb** no instalador. Depois, procure **ATLAS — Coletor Distribuído** no menu de aplicativos. Python e Qt acompanham o pacote.
 
 Na aba **Configuração**, informe o endereço `https://justisoft.com.br/radar/api/v1`, o nome e a chave individual criada em **Radar → Administração → Coletores**. Clique em **Testar conexão** e depois **Conectar e iniciar**. A tela mostra tarefas, conexão, produtividade e logs sem precisar de terminal. A chave DataJud tem campo próprio, caso este computador execute tarefas DataJud.
 

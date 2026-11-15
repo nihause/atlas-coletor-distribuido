@@ -1,5 +1,9 @@
 # Histórico de versões
 
+## 0.2.4
+
+Instalador Windows x64 autônomo, atalhos, autostart opcional e atualizador assinado por plataforma. Pacote Ubuntu mantido e manifesto compatível com instalações Linux anteriores. Workflow compila e homologa os dois sistemas antes de publicar. Radar detecta plataforma e oferece os dois downloads.
+
 ## 0.2.3 — publicada em 15/11/2026
 
 Preenchimento automático da chave pública oficial do CNJ para valores ausentes/vazios, preservando chaves próprias. Mesma regra na GUI e CLI; sem mudança na autenticação Radar ou contrato.

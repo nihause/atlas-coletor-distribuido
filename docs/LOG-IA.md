@@ -1,8 +1,8 @@
 ## 2026-11-15 · Codex/GPT-6 · Instaladores nativos Windows e Linux
 - **Pedido:** disponibilizar EXE Windows e DEB Linux com escolha automática no Radar.
 - **Causa / motivo:** o fluxo Windows anterior dependia de Python e PowerShell; não havia instalador autônomo.
-- **Mudou:** empacotamento Inno Setup/PyInstaller, workflow com runner Windows, configuração/autostart/mutex Windows e atualização assinada específica por sistema. Versão 0.2.4; detalhes em `docs/windows-linux.md`.
-- **Testado:** testes Linux em execução; compilação e homologação nativas Windows serão verificadas pelo workflow antes de publicar. Não instalado no PC2.
+- **Mudou:** empacotamento Inno Setup/PyInstaller, workflow com runner Windows, configuração/autostart/mutex Windows e atualização assinada específica por sistema. Integração PHP em `integracoes/radar/download-windows-linux.patch` (já aplicada ao servidor; não reaplicar); versão 0.2.4; detalhes em `docs/windows-linux.md`.
+- **Testado:** 103 testes Linux aprovados, 1 integração exclusiva Windows omitida no Linux. Compilação/homologação nativas Windows em execução; publicação aguarda aprovação dos dois jobs. Radar: 7 testes download, 47 administração, 19 progresso e Firefox CSP 390/1280 aprovados. Não instalado no PC2.
 - **Atenção:** instalador por usuário; nenhum certificado Authenticode disponível. Nenhum coletor de produção foi reiniciado.
 
 ## 2026-11-15 · Codex / GPT-6 · Auditoria da origem dos processos no Radar

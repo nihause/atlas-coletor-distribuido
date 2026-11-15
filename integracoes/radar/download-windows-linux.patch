@@ -1,0 +1,216 @@
+--- a/radar/admin/coletores.php
++++ b/radar/admin/coletores.php
+@@ -250,36 +250,19 @@
+   </section>
+ 
+   <section class="ds-card coletores-cartao" id="programa-coletor" aria-labelledby="programa-coletor-titulo">
+-    <header class="coletores-cabecalho"><div><h2 class="ds-h3" id="programa-coletor-titulo">Programa do coletor</h2><p class="ds-text-muted">Atlas Worker · Python 3.11 ou superior · Linux e Windows</p></div><a class="ds-btn ds-btn--secondary" href="https://github.com/nihause/atlas-coletor-distribuido" target="_blank" rel="noopener noreferrer">Ver código do programa</a></header>
+-    <p>O <strong>atlas-worker</strong> roda no computador coletor, recebe tarefas do Radar e envia os resultados. Para obter o programa, acesse o repositório privado com uma conta autorizada e use <strong>Code → Download ZIP</strong> ou clone com Git.</p>
+-    <p><a href="https://github.com/nihause/atlas-coletor-distribuido/blob/main/README.md" target="_blank" rel="noopener noreferrer">Abrir o manual do programa</a></p>
+-    <div class="coletores-programas">
+-<?php foreach (['linux' => 'Linux / Ubuntu', 'windows' => 'Windows / PowerShell'] as $os => $titulo): ?>
+-      <details class="coletores-detalhes" data-coletor-expandir>
+-        <summary><?= e($titulo) ?>: instalar e ver o executável</summary>
+-        <div class="coletores-conteudo">
+-          <p>Na pasta do projeto, execute o instalador. Ele pedirá a URL da API, o identificador e a chave gerada no Radar.</p>
+-          <p><strong>Instalar</strong></p>
+-          <pre id="programa-instalar-<?= e($os) ?>"><code><?= e($os === 'linux' ? "git clone https://github.com/nihause/atlas-coletor-distribuido.git
+-cd atlas-coletor-distribuido
+-bash scripts/instalar-linux.sh" : "git clone https://github.com/nihause/atlas-coletor-distribuido.git
+-cd atlas-coletor-distribuido
+-powershell -ExecutionPolicy Bypass -File scripts\instalar-windows.ps1") ?></code></pre>
+-          <button class="ds-btn ds-btn--secondary ds-btn--sm" type="button" data-coletor-copiar="programa-instalar-<?= e($os) ?>">Copiar instalação</button>
+-          <dl class="coletores-dados">
+-            <div><dt>Executável criado pelo instalador</dt><dd><code><?= e($os === 'linux' ? '.venv/bin/atlas-worker' : '.venv\Scripts\atlas-worker.exe') ?></code></dd></div>
+-            <div><dt>Inicialização automática</dt><dd><?= $os === 'linux' ? 'Serviço atlas-worker (opcional no instalador)' : 'Tarefa agendada AtlasWorker' ?></dd></div>
+-          </dl>
+-          <p><strong>Iniciar manualmente</strong></p>
+-          <pre id="programa-iniciar-<?= e($os) ?>"><code><?= e($os === 'linux' ? 'bash scripts/iniciar-linux.sh' : 'powershell -ExecutionPolicy Bypass -File scripts\iniciar-windows.ps1') ?></code></pre>
+-          <button class="ds-btn ds-btn--secondary ds-btn--sm" type="button" data-coletor-copiar="programa-iniciar-<?= e($os) ?>">Copiar comando</button>
+-          <p><strong>Verificar conexão</strong></p>
+-          <pre><code><?= e($os === 'linux' ? '.venv/bin/atlas-worker --env .env verificar' : '.\.venv\Scripts\atlas-worker.exe --env .env verificar') ?></code></pre>
+-          <p class="ds-text-sm ds-text-muted"><?= $os === 'linux' ? 'Para acompanhar o serviço: journalctl -u atlas-worker -f.' : 'O .exe é criado durante a instalação com Python; ainda não há um instalador .exe independente para baixar.' ?></p>
+-        </div>
+-      </details>
+-<?php endforeach; ?>
+-    </div>
++    <header class="coletores-cabecalho"><div><h2 class="ds-h3" id="programa-coletor-titulo">Baixar o Atlas Coletor</h2><p class="ds-text-muted">Aplicativo com interface · Windows e Ubuntu Linux · Não precisa instalar Python</p></div><a class="ds-btn ds-btn--secondary" href="https://github.com/nihause/atlas-coletor-distribuido" target="_blank" rel="noopener noreferrer">Ver código do programa</a></header>
++    <p data-coletor-sistema>Escolha o sistema do computador que fará a coleta.</p>
++    <div class="ds-row">
++      <a class="ds-btn ds-btn--secondary" data-coletor-download="windows" href="baixar-coletor.php?os=windows">Baixar para Windows (.exe)</a>
++      <a class="ds-btn ds-btn--secondary" data-coletor-download="linux" href="baixar-coletor.php?os=linux">Baixar para Ubuntu 24.04 (.deb)</a>
++    </div>
++    <p>Instale o pacote e abra <strong>ATLAS — Coletor Distribuído</strong> no menu de aplicativos. Informe a URL abaixo, o identificador e a chave exclusiva deste computador; clique em <strong>Conectar e iniciar</strong>. A chave pública do DataJud já vem preenchida.</p>
++    <details class="coletores-detalhes" data-coletor-expandir><summary>Instalação, executável e atualizações</summary><div class="coletores-conteudo">
++      <p><strong>Windows 10/11 x64:</strong> execute o instalador .exe. O aplicativo fica em <code>%LOCALAPPDATA%\Programs\AtlasColetor\atlas-coletor.exe</code>, com atalho no menu Iniciar. O Windows pode mostrar aviso de editor desconhecido.</p>
++      <p><strong>Ubuntu 24.04 x64:</strong> abra o .deb no instalador de aplicativos ou use <code>sudo apt install ./atlas-coletor_*.deb</code>. Executável: <code>/usr/bin/atlas-coletor</code>.</p>
++      <p>As próximas versões aparecem na aba Atualizações do Atlas. As configurações são preservadas. Use um identificador e uma chave diferentes para cada computador.</p>
++      <a href="https://github.com/nihause/atlas-coletor-distribuido/blob/main/docs/windows-linux.md" target="_blank" rel="noopener noreferrer">Abrir manual de instalação</a>
++    </div></details>
+     <dl class="coletores-dados"><div><dt>URL da API para configurar</dt><dd><code><?= e($baseApiUrl) ?></code></dd></div></dl>
+   </section>
+ 
+@@ -405,33 +388,10 @@
+       </div>
+ 
+       <div class="coletor-estilo-36">
+-        <label class="ds-label">4. Comandos de instalação no computador remoto</label>
+-        <div class="coletor-estilo-37">
+-          <div class="coletor-estilo-38">
+-            <div class="coletor-estilo-39">
+-              <strong class="coletor-estilo-40">Linux (Ubuntu / Debian)</strong>
+-              <button type="button" class="coletor-estilo-41 ds-btn ds-btn--ghost ds-btn--sm" data-coletor-copiar="cmd-res-linux">Copiar</button>
+-            </div>
+-            <pre id="cmd-res-linux" class="coletor-estilo-42"><code>git clone https://github.com/nihause/atlas-coletor-distribuido.git
+-cd atlas-coletor-distribuido
+-bash scripts/instalar-linux.sh</code></pre>
+-          </div>
+-
+-          <div class="coletor-estilo-38">
+-            <div class="coletor-estilo-39">
+-              <strong class="coletor-estilo-40">Windows (PowerShell)</strong>
+-              <button type="button" class="coletor-estilo-41 ds-btn ds-btn--ghost ds-btn--sm" data-coletor-copiar="cmd-res-windows">Copiar</button>
+-            </div>
+-            <pre id="cmd-res-windows" class="coletor-estilo-42"><code>git clone https://github.com/nihause/atlas-coletor-distribuido.git
+-cd atlas-coletor-distribuido
+-.\scripts\instalar-windows.ps1</code></pre>
+-          </div>
+-        </div>
+-      </div>
+-
+-      <p class="coletor-estilo-43 ds-text-sm ds-text-muted">
+-        <em>Nota:</em> O instalador solicitará a URL, o nome e a chave de API e criará o arquivo <code>.env</code> com permissão 600.
+-      </p>
++        <p class="ds-label">4. Instale e abra o Atlas neste computador</p>
++        <p><a class="ds-btn ds-btn--primary" href="baixar-coletor.php?os=<?= strtolower((string) ($nova['sistema'] ?? '')) === 'windows' ? 'windows' : 'linux' ?>">Baixar instalador para <?= strtolower((string) ($nova['sistema'] ?? '')) === 'windows' ? 'Windows (.exe)' : 'Ubuntu (.deb)' ?></a></p>
++        <p>Abra o Atlas no menu de aplicativos, cole a URL, o identificador e a chave acima e clique em <strong>Conectar e iniciar</strong>. Não precisa usar terminal nem instalar Python.</p>
++      </div>
+     </div>
+ 
+     <div class="coletor-estilo-44 ds-row">
+--- a/radar/assets/coletores.js
++++ b/radar/assets/coletores.js
+@@ -1,5 +1,19 @@
+ (function() {
+ 'use strict';
++// Sugere o sistema do visitante; os dois downloads permanecem disponíveis.
++document.addEventListener('DOMContentLoaded', function() {
++  var platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent || '';
++  var os = /win/i.test(platform) ? 'windows' : (/linux/i.test(platform) && !/android/i.test(navigator.userAgent) ? 'linux' : '');
++  if (!os) return;
++  document.querySelectorAll('[data-coletor-download="' + os + '"]').forEach(function(link) {
++    link.classList.remove('ds-btn--secondary'); link.classList.add('ds-btn--primary');
++    link.textContent += ' — recomendado para este computador';
++  });
++  document.querySelectorAll('[data-coletor-sistema]').forEach(function(el) {
++    el.textContent = os === 'windows' ? 'Detectamos Windows. Baixe o instalador .exe para este computador.' : 'Detectamos Linux. O pacote disponível é para Ubuntu 24.04 x64.';
++  });
++});
++
+ function abrirModalCadastro() {
+   var el = document.getElementById('modal-novo-coletor');
+   if (el) {
+--- /dev/null
++++ b/radar/admin/baixar-coletor.php
+@@ -0,0 +1,32 @@
++<?php
++declare(strict_types=1);
++require __DIR__ . '/../lib/bootstrap.php';
++require __DIR__ . '/../lib/coletor_download.php';
++require_admin();
++$os = (string) ($_GET['os'] ?? '');
++if (!in_array($os, ['windows', 'linux'], true)) { http_response_code(400); exit('Escolha Windows ou Linux.'); }
++session_write_close();
++try {
++    // Cache por usuário do PHP, fora do projeto; nunca contém credenciais.
++    $dir = sys_get_temp_dir() . '/radar-atlas-release-' . posix_geteuid();
++    if (!is_dir($dir)) @mkdir($dir, 0700);
++    if (is_link($dir) || !is_dir($dir) || fileowner($dir) !== posix_geteuid()) throw new RuntimeException('Cache indisponível.');
++    $cache = $dir . '/latest.json';
++    $payload = null;
++    if (is_file($cache) && !is_link($cache) && filemtime($cache) > time() - 600) $payload = json_decode((string) file_get_contents($cache), true);
++    if (!is_array($payload)) {
++        $curl = curl_init('https://api.github.com/repos/nihause/atlas-coletor-distribuido/releases/latest');
++        curl_setopt_array($curl, [CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 3, CURLOPT_TIMEOUT => 8, CURLOPT_USERAGENT => 'Radar-Atlas-Download', CURLOPT_HTTPHEADER => ['Accept: application/vnd.github+json'], CURLOPT_FOLLOWLOCATION => false]);
++        $body = curl_exec($curl); $status = curl_getinfo($curl, CURLINFO_RESPONSE_CODE); curl_close($curl);
++        if ($status !== 200 || !is_string($body)) throw new RuntimeException('GitHub indisponível.');
++        $payload = json_decode($body, true, 32, JSON_THROW_ON_ERROR);
++        coletor_download_url($payload, $os);
++        if (!is_link($cache)) { file_put_contents($cache, $body, LOCK_EX); @chmod($cache, 0600); }
++    }
++    header('Cache-Control: no-store');
++    header('Location: ' . coletor_download_url($payload, $os), true, 302);
++} catch (Throwable $e) {
++    http_response_code(503);
++    header('Content-Type: text/html; charset=utf-8');
++    echo '<p>Não foi possível obter o instalador agora. Tente novamente ou escolha o pacote na <a href="https://github.com/nihause/atlas-coletor-distribuido/releases/latest" rel="noreferrer">página oficial de downloads</a>.</p>';
++}
+--- /dev/null
++++ b/radar/lib/coletor_download.php
+@@ -0,0 +1,17 @@
++<?php
++declare(strict_types=1);
++/** Somente instaladores oficiais, com sistema e arquitetura explícitos. */
++function coletor_download_url(array $release, string $os): string
++{
++    if (!in_array($os, ['windows', 'linux'], true)) throw new InvalidArgumentException('Sistema inválido.');
++    $tag = (string) ($release['tag_name'] ?? '');
++    if (!preg_match('/^v(\d+\.\d+\.\d+)$/D', $tag, $m) || !empty($release['draft']) || !empty($release['prerelease'])) {
++        throw new RuntimeException('Versão oficial indisponível.');
++    }
++    $name = 'atlas-coletor_' . $m[1] . ($os === 'windows' ? '_windows_amd64.exe' : '_ubuntu24.04_amd64.deb');
++    $expected = 'https://github.com/nihause/atlas-coletor-distribuido/releases/download/' . $tag . '/' . $name;
++    foreach (($release['assets'] ?? []) as $asset) {
++        if (($asset['name'] ?? '') === $name && ($asset['browser_download_url'] ?? '') === $expected && ($asset['size'] ?? 0) > 0) return $expected;
++    }
++    throw new RuntimeException('O instalador deste sistema ainda não está disponível na versão oficial.');
++}
+--- /dev/null
++++ b/tests/coletores_download.php
+@@ -0,0 +1,22 @@
++<?php
++declare(strict_types=1);
++require __DIR__ . '/../radar/lib/coletor_download.php';
++$count=0;
++function check(bool $ok): void { global $count; if (!$ok) throw new RuntimeException('Falha'); ++$count; }
++$r=['tag_name'=>'v0.2.4','assets'=>[]];
++foreach (['windows'=>'windows_amd64.exe','linux'=>'ubuntu24.04_amd64.deb'] as $os=>$suffix) {
++ $name='atlas-coletor_0.2.4_'.$suffix;
++ $r['assets'][]=['name'=>$name,'size'=>100,'browser_download_url'=>'https://github.com/nihause/atlas-coletor-distribuido/releases/download/v0.2.4/'.$name];
++}
++check(str_ends_with(coletor_download_url($r,'windows'),'.exe'));
++check(str_ends_with(coletor_download_url($r,'linux'),'.deb'));
++foreach (['sistema','externo','ausente','tag','pre'] as $kind) {
++ $bad=$r;$os='windows';
++ if($kind==='sistema')$os='mac';
++ if($kind==='externo')$bad['assets'][0]['browser_download_url']='https://externo.invalid/pacote.exe';
++ if($kind==='ausente')$bad['assets']=[];
++ if($kind==='tag')$bad['tag_name']='../../invalido';
++ if($kind==='pre')$bad['prerelease']=true;
++ try {coletor_download_url($bad,$os);check(false);} catch(InvalidArgumentException|RuntimeException $e) {check($e->getMessage()!=='Falha');}
++}
++echo "$count verificações aprovadas; sem rede ou banco.\n";
+--- /dev/null
++++ b/docs/coletores-download.md
+@@ -0,0 +1,11 @@
++# Download dos aplicativos Atlas
++
++Em Administração → Coletores, o navegador sugere Windows ou Linux e mantém os dois botões disponíveis. A indicação Linux não afirma compatibilidade com todas as distribuições: o pacote é Ubuntu 24.04 x64. macOS/Android não recebem recomendação automática. Nenhum download começa sem clique.
++
++Após cadastrar ou renovar a chave de um coletor, o modal oferece o instalador do sistema escolhido no cadastro, mesmo quando o administrador usa outro sistema. Abra o aplicativo pelo menu e preencha URL, identificador e chave exclusiva. Nenhuma credencial vai ao GitHub.
++
++`radar/admin/baixar-coletor.php?os=windows|linux` exige administrador e consulta o último Release público de `nihause/atlas-coletor-distribuido`. O resolvedor só aceita versão estável, nome canônico x64 e URL exata do instalador no repositório oficial. O cache fica por 10 minutos em diretório temporário privado do usuário PHP, sem banco nem segredos. Falhas retornam 503 e link da página oficial; nunca trocam Windows por Linux silenciosamente.
++
++Windows: instalador por usuário, sem Python externo, com atalho no menu Iniciar. Dados/configurações ficam fora do diretório do aplicativo e sobrevivem à reinstalação. Inicialização na sessão é opcional no Atlas. Sem certificado Authenticode, o Windows pode exibir aviso de editor desconhecido. Atualizações do Atlas usam manifestos Ed25519 distintos por sistema, mantendo o Linux anterior compatível.
++
++Verificação: `php tests/coletores_download.php`; testes de coletores em tabelas temporárias; Firefox com CSP e larguras 390/1280. Instalação Windows validada em runner do GitHub, não no PC2 físico. Código e manual: https://github.com/nihause/atlas-coletor-distribuido/blob/main/docs/windows-linux.md.
+--- /dev/null
++++ b/docs/REGISTRO-DOWNLOAD-WINDOWS.md
+@@ -0,0 +1,7 @@
++## 2026-11-15 · Codex/GPT-6 · Download Atlas Windows e Linux
++- **Pedido:** instaladores Windows/Linux e identificação automática no site.
++- **Causa / motivo:** a tela ainda indicava repositório privado e instalação por Git/Python; não oferecia EXE autônomo.
++- **Mudou:** `radar/admin/coletores.php` agora oferece downloads e instruções da GUI; modal usa sistema cadastrado. `radar/assets/coletores.js` sugere plataforma do navegador sem esconder alternativas. Novo endpoint autenticado `baixar-coletor.php`, resolvedor restrito em `radar/lib/coletor_download.php`, testes e `docs/coletores-download.md`. Atlas 0.2.4 empacota os dois sistemas em runners nativos.
++- **Testado:** 7 verificações do resolvedor, 47 de administração e 19 de progresso aprovadas; sintaxe dos três PHP aprovada. Firefox/CSP em 390/1280 px: cadastro, expansão, downloads e recomendação Windows/Linux/macOS, sem rolagem horizontal. Sem consulta às fontes ou alteração de dados. NÃO testado: instalação no PC2 físico nem clique autenticado do navegador do usuário.
++- **Atenção:** Windows x64 e Ubuntu 24.04 x64; cache público de metadados por 10 minutos, sem credenciais. Instalador inicial pode mostrar editor desconhecido no Windows. Sem sudo, restart, mudança de contrato, banco ou limites de coleta.
++
