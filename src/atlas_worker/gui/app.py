@@ -83,7 +83,7 @@ class Window(QMainWindow):
         self.setMinimumSize(min(760, area.width()-48), min(600, int(area.height()*0.9)))
         self.setWindowIcon(QIcon(str(Path(__file__).with_name("atlas.svg"))))
         root = QWidget(); layout = QVBoxLayout(root)
-        layout.setContentsMargins(22, 14, 22, 12); layout.setSpacing(8)
+        layout.setContentsMargins(22, 10, 22, 10); layout.setSpacing(6)
         title = QLabel("ATLAS — Coletor Distribuído"); title.setObjectName("title")
         layout.addWidget(title)
         self.identity = QLabel(f"{socket.gethostname()}  ·  Versão {__version__}"); self.identity.setObjectName("subtitle")
@@ -158,7 +158,7 @@ class Window(QMainWindow):
         layout.addWidget(connection)
         metrics = QGridLayout(); self.metric_labels = {}
         for i, (key, label) in enumerate([("received", "Tarefas recebidas"), ("completed", "Concluídas"), ("errors", "Com erro"), ("active", "Em execução"), ("uptime", "Tempo de atividade"), ("read", "Itens lidos na fonte"), ("found", "Selecionados para envio"), ("sent", "Confirmados nesta execução")]):
-            group = QWidget(); box = QVBoxLayout(group); box.setContentsMargins(8, 4, 8, 4); box.setSpacing(2); box.addWidget(QLabel(label))
+            group = QWidget(); box = QVBoxLayout(group); box.setContentsMargins(8, 3, 8, 3); box.setSpacing(2); box.addWidget(QLabel(label))
             value = QLabel("0" if key != "uptime" else "00:00:00"); value.setObjectName("metric"); value.setMinimumHeight(30)
             box.addWidget(value); metrics.addWidget(group, i // 4, i % 4); self.metric_labels[key] = value
         layout.addLayout(metrics)

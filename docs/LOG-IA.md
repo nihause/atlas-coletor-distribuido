@@ -1,3 +1,10 @@
+## 2026-11-15 · Codex / GPT-6 · Painel compacto também no runner limpo
+- **Pedido:** exibir os indicadores sem rolagem e integrar somente com os testes aprovados.
+- **Causa / motivo:** 98 testes locais aprovados; no Actions 43726792783, 97 passaram e o painel de 1100×700 excedeu a área em 23 px com as fontes do runner. A auditoria de segredos e dependências passou.
+- **Mudou:** espaçamentos do cabeçalho, abas, grupos e indicadores reduzidos em `gui/app.py` e `gui/style.py`; workflow instala `fonts-ubuntu` para reproduzir o desktop alvo. Mantido o teste que exige rolagem zero, sem relaxar a asserção.
+- **Testado:** suíte completa local repetida após o ajuste e nova execução Actions acompanhada antes do merge. NÃO testado: instalação elevada, atualização entre Releases reais, PC1 e Windows.
+- **Atenção:** primeiro run falhou e não foi integrado; sem mudança nos contadores, coleta ou assinatura. Nenhuma alteração de visibilidade ou publicação pública.
+
 ## 2026-11-15 · Codex / GPT-6 · Atualizador assinado e janela adaptada ao monitor
 - **Pedido:** missão GitHub público/Releases/atualização gráfica e aumentar a altura útil sem esconder os indicadores.
 - **Causa / motivo:** janela fixa de 820 px e grupos altos causavam rolagem; atualização anterior confiava apenas em checksum e dependia de abrir o instalador manualmente. Publicação exige auditoria e confirmação explícita conforme anexo.
