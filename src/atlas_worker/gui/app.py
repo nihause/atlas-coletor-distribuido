@@ -23,7 +23,7 @@ from .. import __version__
 from ..config import default_state_dir
 from ..config_store import ConfigStore, atomic_private, config_path, defaults, save_preferences
 from ..instance import AlreadyRunning, FileLock
-from ..logging_config import JsonFormatter, RedactFilter, sanitize, setup
+from ..logging_config import JsonFormatter, RedactFilter, sanitize, sanitize_data, setup
 from ..updates import ReleaseClient
 from ..verification import Verification, check_connection
 from .desktop import autostart_path, set_autostart
@@ -383,7 +383,7 @@ class Window(QMainWindow):
                 try:
                     entry = json.loads(line)
                     if all(k in entry for k in ("time", "level", "message")):
-                        self.entries.append(json.loads(sanitize(json.dumps(entry, ensure_ascii=False), self.secrets)))
+                        self.entries.append(sanitize_data(entry, self.secrets))
                 except (ValueError, TypeError):
                     continue
             self.render_logs()
@@ -391,7 +391,7 @@ class Window(QMainWindow):
             pass
 
     def add_log(self, entry):
-        entry = json.loads(sanitize(json.dumps(entry, ensure_ascii=False), self.secrets))
+        entry = sanitize_data(entry, self.secrets)
         self.entries.append(entry); self.entries = self.entries[-1000:]
         self.render_logs()
 
@@ -416,7 +416,7 @@ class Window(QMainWindow):
         if path:
             payload = {"version": __version__, "service": self.service.text(), "connection": self.connection.text(), "snapshot": self.last_snapshot, "events": self.entries}
             try:
-                atomic_private(Path(path), sanitize(json.dumps(payload, ensure_ascii=False, indent=2), self.secrets))
+                atomic_private(Path(path), json.dumps(sanitize_data(payload, self.secrets), ensure_ascii=False, indent=2))
                 self.show_message("Diagnóstico exportado sem configuração ou credenciais.")
             except OSError: self.show_message("Não foi possível gravar o diagnóstico.")
 

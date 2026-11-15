@@ -18,6 +18,17 @@ def sanitize(text: str, secrets=()) -> str:
     return text
 
 
+def sanitize_data(value, secrets=()):
+    """Sanitiza valores antes de serializar, preservando aspas e estrutura JSON."""
+    if isinstance(value, str):
+        return sanitize(value, secrets)
+    if isinstance(value, dict):
+        return {sanitize(str(key), secrets): sanitize_data(item, secrets) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [sanitize_data(item, secrets) for item in value]
+    return value
+
+
 class RedactFilter(logging.Filter):
     def __init__(self, secrets: list[str]):
         super().__init__()

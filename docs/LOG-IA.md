@@ -1,3 +1,10 @@
+## 2026-11-15 · Codex / GPT-6 · Sanitização estruturada dos logs e diagnóstico
+- **Pedido:** concluir o aplicativo gráfico com logs e exportação sem credenciais.
+- **Causa / motivo:** reprodução local confirmou que aplicar regex de remoção de segredos sobre JSON já serializado podia remover aspas de uma mensagem como `WORKER_TOKEN=***`, tornando o JSON inválido.
+- **Mudou:** `logging_config.py`: função recursiva para sanitizar valores antes de serializar; `gui/app.py`: carregamento, visualização e exportação usam a sanitização estruturada; testes desktop e Qt cobrem atribuição de chave, aspas e listas, sem expor valores reais; documentação de validação atualizada.
+- **Testado:** suíte completa com Qt offscreen: 76 aprovados (inclui os 42 originais); reprodução da falha e regressão do JSON sanitizado confirmadas. Pacote será regenerado com esta correção antes da entrega. NÃO testado: instalação administrativa, GNOME/bandeja/autostart real, atualização entre Releases, Windows e APIs de produção.
+- **Atenção:** correção enviada ao mesmo PR #1; sem alterações de contrato, servidor, serviços ou dados reais. Validações do .deb e do runner registradas nas entradas desta tarefa.
+
 ## 2026-11-15 · Codex / GPT-6 · Dependências gráficas no runner do GitHub
 - **Pedido:** concluir os testes e a publicação da branch/PR do aplicativo gráfico.
 - **Causa / motivo:** primeira execução Actions falhou ao importar `PySide6.QtTest`: `libEGL.so.1` ausente na imagem limpa Ubuntu 24.04; os 74 testes locais estavam aprovados. O pacote .deb já declara `libegl1` nas dependências.

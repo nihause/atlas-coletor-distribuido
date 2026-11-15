@@ -200,3 +200,12 @@ async def test_motor_recusa_contrato_sem_reservar_tarefas(cfg):
         assert paths==['/radar/api/v1/coletores.php/registrar']
     finally:
         await client.aclose();await worker.http.aclose()
+
+
+def test_sanitizacao_estruturada_preserva_aspas_e_listas():
+    from atlas_worker.logging_config import sanitize_data
+    value={'events':[{'message':'WORKER_TOKEN="fictício"','detail':'aspas " e quebra\n de linha'}]}
+    result=sanitize_data(value)
+    encoded=json.dumps(result)
+    assert json.loads(encoded)==result and 'fictício' not in encoded
+    assert result['events'][0]['detail']==value['events'][0]['detail']

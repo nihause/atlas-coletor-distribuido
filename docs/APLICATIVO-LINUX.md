@@ -93,4 +93,4 @@ Testes automatizados usam Qt real em `offscreen`, motor real e APIs simuladas. N
 
 ### Resultado da validação desta entrega
 
-Em 15/11/2026: **74 testes aprovados**; `.deb` amd64 gerado no Ubuntu 24.04 com 105.963.834 bytes e checksum conferido. O pacote foi extraído e o binário Qt abriu em modo offscreen, sem ambiente virtual; a CLI empacotada respondeu `atlas-worker 0.2.0 (contrato 1)`. Não houve instalação administrativa nem comunicação com APIs de produção. O `.deb` e seu checksum estão em `/home/justisoft/Downloads/atlas-coletor/` nesta máquina; os próximos builds serão artifacts do workflow no GitHub.
+Em 15/11/2026: **76 testes aprovados**; `.deb` amd64 gerado no Ubuntu 24.04 com 105.963.834 bytes e checksum conferido. O pacote foi extraído e o binário Qt abriu em modo offscreen, sem ambiente virtual; a CLI empacotada respondeu `atlas-worker 0.2.0 (contrato 1)`. Não houve instalação administrativa nem comunicação com APIs de produção. O `.deb` e seu checksum estão em `/home/justisoft/Downloads/atlas-coletor/` nesta máquina; os próximos builds serão artifacts do workflow no GitHub.

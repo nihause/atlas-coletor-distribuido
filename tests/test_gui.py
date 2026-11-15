@@ -132,3 +132,14 @@ def test_conectar_iniciar_chave_recusada_mostra_erro(window,app):
     assert 'Chave de API recusada' in w.message.text()
     assert w.service.text()=='Parado'
     assert TOKEN not in w.message.text()+w.technical.toPlainText()
+
+
+def test_logs_com_atribuicao_de_chave_preservam_json(window,app,tmp_path,monkeypatch):
+    w=window
+    w.add_log({'time':'2026-11-15T13:00:00+00:00','level':'WARNING','task_id':3,'message':'WORKER_TOKEN='+TOKEN})
+    assert len(w.entries)==1 and TOKEN not in w.entries[0]['message']
+    output=tmp_path/'export.json'
+    monkeypatch.setattr(QFileDialog,'getSaveFileName',lambda *a,**k:(str(output),''))
+    w.export_diagnostic()
+    assert json.loads(output.read_text())['events'][0]['task_id']==3
+    assert TOKEN not in output.read_text()
