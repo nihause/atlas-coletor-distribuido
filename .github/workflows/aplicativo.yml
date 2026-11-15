@@ -47,7 +47,6 @@ jobs:
     env:
       PYTHONUTF8: '1'
       QT_QPA_PLATFORM: offscreen
-      ATLAS_PACKAGES: ${{ runner.temp }}/atlas-packages
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -59,7 +58,9 @@ jobs:
       - run: python -m pip check
       - run: python -m pip_audit
       - run: python -m pytest -q
-      - run: python scripts/gerar-exe.py --output "$env:ATLAS_PACKAGES"
+      - run: |
+          "ATLAS_PACKAGES=$env:RUNNER_TEMP/atlas-packages" >> $env:GITHUB_ENV
+          python scripts/gerar-exe.py --output "$env:RUNNER_TEMP/atlas-packages"
       - run: python scripts/testar-instalador-windows.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
