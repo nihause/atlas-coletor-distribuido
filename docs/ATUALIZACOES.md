@@ -2,7 +2,7 @@
 
 Repositório público: https://github.com/nihause/atlas-coletor-distribuido.
 
-A publicação oficial usa a tag `v0.2.2` na `main`, com testes, auditoria, empacotamento e assinatura pelo GitHub Actions. O Release inclui `.deb`, SHA-256, `manifest.json` e `manifest.sig`. Consulte as [notas da versão](releases/v0.2.2.md) e o registro de publicação no LOG-IA para o resultado efetivo.
+A publicação oficial usa a tag `v0.2.2` na `main`, com testes, auditoria, empacotamento e assinatura pelo GitHub Actions. O Release inclui `.deb`, SHA-256, `manifest.json` e `manifest.sig`. Consulte as [notas da versão](releases/v0.2.2.md) e o registro de publicação no LOG-IA para os detalhes da validação. A versão 0.2.2 foi publicada e validada em 15/11/2026, pelo Actions 43727933187.
 
 # Atualização gráfica e publicação oficial — Atlas 0.2.2
 
@@ -10,7 +10,7 @@ A publicação oficial usa a tag `v0.2.2` na `main`, com testes, auditoria, empa
 
 A janela ocupa 94% da altura útil e respeita o monitor, sem maximizar. O painel foi reorganizado em duas linhas de indicadores e conexão compacta. Em 1100×700 e 1180×970, a coleta simples cabe sem rolagem e todos os indicadores ficam visíveis. Em conteúdo excepcionalmente grande, fontes ampliadas ou várias tarefas longas, a rolagem de segurança continua disponível para não cortar informações.
 
-A aba Atualizações consulta automaticamente ao abrir e a cada seis horas. Mostra versão instalada, última publicada, horário, novidades, download e instalação. Repositório público dispensa token; enquanto privado, o campo opcional aceita token próprio do GitHub apenas em memória. Nunca usar a chave Radar nesse campo. Não existe instalação automática sem consentimento.
+A aba Atualizações consulta automaticamente ao abrir e a cada seis horas. Mostra versão instalada, última publicada, horário, novidades, download e instalação. O repositório oficial agora é público e dispensa token. O campo opcional continua disponível para instalações que usem repositório privado, somente em memória. Nunca usar a chave Radar nesse campo. Não existe instalação automática sem consentimento.
 
 Use Verificar atualizações → Baixar atualização → Atualizar agora. Atualizar agora também baixa, caso necessário. A autenticidade é verificada por Ed25519 com chave pública incorporada, manifesto oficial e SHA-256. Somente Ubuntu 24.04 e arquitetura publicada são aceitos; downgrade é recusado. Sem manifesto assinado, a atualização fica bloqueada, mesmo com checksum válido.
 
@@ -28,7 +28,7 @@ O atualizador 0.2.1 não possui verificação de assinatura nem instalação int
 
 1. Revisar código e documentação; atualizar pyproject.toml e atlas_worker.__version__ juntos.
 2. Abrir PR e aguardar todos os testes, Gitleaks (histórico completo), pip check, pip-audit e empacotamento passarem. Integrar à main.
-3. Confirmar que não existem tag/Release para a versão. A primeira publicação pública depende da confirmação do proprietário, assim como tornar o repositório público.
+3. Confirmar que não existem tag/Release para a versão. A primeira publicação pública 0.2.2 foi autorizada e concluída em 15/11/2026. Não sobrescrever versões existentes. O commit da tag não pode conter [skip ci] ou instruções equivalentes, que podem impedir o workflow.
 4. Criar e enviar tag vX.Y.Z apontando para o commit validado da main. Commits normais geram artifacts; só tags publicam Releases.
 5. O workflow testa, verifica segredos/dependências, confere tag versus versão, gera .deb/checksum, assina manifest.json com ATLAS_RELEASE_SIGNING_KEY e produz manifest.sig. A verificação local do manifesto garante que a chave corresponde à pública incorporada.
 6. O job de publicação, dependente do sucesso anterior, tem contents:write e anexa pacote, checksum, manifesto e assinatura. Não sobrescreve Release existente. As demais etapas têm somente contents:read. Actions são fixadas por SHA.

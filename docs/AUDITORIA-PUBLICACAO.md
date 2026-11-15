@@ -15,3 +15,5 @@ Somente chave pública de assinatura está incorporada. Chave privada nova fica 
 Resultado: não foi identificado segredo ou risco relevante que impeça preparar a publicação. Alterar a visibilidade e publicar o primeiro Release público continuam pendentes de confirmação explícita do usuário, conforme a missão anexada. Não alegar que a auditoria automatizada substitui revisão contínua.
 
 Validação final: PR #1 integrado em main após Actions 43726971130 e 43726977927 aprovados. Pacote 0.2.2 autenticado localmente; repositório ainda privado e sem Release. Confirmação pública pendente.
+
+Publicação concluída em 15/11/2026 após autorização da missão: tag v0.2.2, Release público https://github.com/nihause/atlas-coletor-distribuido/releases/tag/v0.2.2, Actions 43727933187 aprovado. Assinatura, checksum, download sem token e metadados Ubuntu 24.04 amd64 conferidos.

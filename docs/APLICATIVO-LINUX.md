@@ -2,7 +2,7 @@
 
 Repositório público: https://github.com/nihause/atlas-coletor-distribuido.
 
-A publicação oficial usa a tag `v0.2.2` na `main`, com testes, auditoria, empacotamento e assinatura pelo GitHub Actions. O Release inclui `.deb`, SHA-256, `manifest.json` e `manifest.sig`. Consulte as [notas da versão](releases/v0.2.2.md) e o registro de publicação no LOG-IA para o resultado efetivo.
+A publicação oficial usa a tag `v0.2.2` na `main`, com testes, auditoria, empacotamento e assinatura pelo GitHub Actions. O Release inclui `.deb`, SHA-256, `manifest.json` e `manifest.sig`. Consulte as [notas da versão](releases/v0.2.2.md) e o registro de publicação no LOG-IA para os detalhes da validação. A versão 0.2.2 foi publicada e validada em 15/11/2026, pelo Actions 43727933187.
 
 > Atualização 0.2.2: consulte [atualizações e publicação](ATUALIZACOES.md). Este guia substitui as instruções anteriores de atualização por simples checksum/abertura manual.
 
@@ -10,7 +10,7 @@ A publicação oficial usa a tag `v0.2.2` na `main`, com testes, auditoria, empa
 
 ## Instalar sem terminal
 
-1. Obtenha `atlas-coletor_0.2.0_ubuntu24.04_amd64.deb` e o respectivo `.sha256` na versão publicada no GitHub ou no pacote fornecido para revisão. O repositório é privado: entre com uma conta autorizada.
+1. Obtenha `atlas-coletor_0.2.2_ubuntu24.04_amd64.deb` e o respectivo `.sha256` na versão publicada no GitHub ou no pacote fornecido para revisão. O repositório e o Release são públicos; nenhum token GitHub é necessário.
 2. No Ubuntu 24.04 de 64 bits, abra o `.deb` no instalador de pacotes do sistema (menu de contexto → abrir com instalador). O Ubuntu poderá solicitar autorização administrativa para instalar dependências. Se o sistema não tiver um aplicativo associado a `.deb`, será necessário instalar um gerenciador gráfico de pacotes.
 3. No menu de aplicativos, abra **ATLAS — Coletor Distribuído**.
 4. Em **Configuração**, informe a URL `https://justisoft.com.br/radar/api/v1`, o identificador cadastrado no Radar e a chave de API individual com permissão Ingestão. O cliente acrescenta `/coletores.php/<rota>`; não acrescente essa rota na URL base.
@@ -59,11 +59,13 @@ GUI e CLI usam `verification.check_connection`. HTTP 401 indica chave recusada; 
 
 ## Atualizações autorizadas pelo usuário
 
-A aba **Atualizações** consulta GitHub Releases. Como o repositório é privado, pode ser necessário informar ali um **token do GitHub**, com leitura de conteúdo somente desse repositório. Esse token não é persistido e é diferente da chave Radar. A chave Radar nunca é enviada ao GitHub.
+A aba **Atualizações** consulta automaticamente os Releases públicos ao abrir e a cada seis horas. Mostra versão instalada/disponível, horário, novidades, progresso e estado de instalação. Não precisa de token GitHub. A chave Radar nunca é enviada ao GitHub.
 
-O aplicativo compara versões estáveis e procura um pacote para Ubuntu 24.04 e a arquitetura local. Só habilita atualizar quando há pacote e SHA-256 de confiança na metadata autenticada do GitHub (`digest`) ou no arquivo `.sha256` do Release. Baixa de forma incremental, limita a 1 GiB e verifica antes de abrir. URLs HTTPS são restritas aos domínios oficiais necessários ao download; autenticação GitHub só é enviada a `api.github.com`. O SHA-256 garante correspondência com o Release consultado; não é uma assinatura independente do mantenedor.
+O cliente compara versões estáveis, valida Ubuntu 24.04/arquitetura e exige manifesto Ed25519 válido com a chave pública incorporada. O pacote deve corresponder ao projeto oficial, versão, nome, tamanho e SHA-256 assinados. Pacotes alterados, sem assinatura, incompatíveis e downgrade são bloqueados.
 
-Não executa script remoto nem instala silenciosamente. O usuário confirma o download/abertura; o instalador do Ubuntu pede as permissões necessárias. Depois da instalação, reabra o Atlas. Repositório inacessível, ausência de Release, pacote incompatível ou checksum ausente geram orientação na tela. A primeira versão ainda precisa ser publicada como Release pelo mantenedor para aparecer nessa consulta.
+Atualizar agora pede confirmação, baixa o pacote, suspende novas reservas e espera as tarefas atuais terminarem. É possível cancelar a espera. Depois, pkexec pede a autorização administrativa e o instalador verifica novamente o pacote antes de usar apt-get. O processo anterior sai antes do reinício; configuração, logs e estado são preservados. Detalhes em [ATUALIZACOES.md](ATUALIZACOES.md).
+
+Para quem usa 0.2.1, a primeira instalação do 0.2.2 pelo .deb é recomendada para obter esse fluxo completo. O atualizador antigo pode abrir o pacote no instalador do Ubuntu, mas não faz a validação independente de assinatura nem a instalação integrada nova.
 
 ## Desenvolver e gerar o pacote
 
@@ -79,7 +81,7 @@ O empacotamento requer Ubuntu 24.04 e `dpkg-deb`; inclui o Python, o motor e os 
 
 Referências oficiais do empacotamento: [Qt for Python e PyInstaller](https://doc.qt.io/qtforpython-6/deployment/deployment-pyinstaller.html) e [instalação Qt for Python](https://doc.qt.io/qtforpython-6/gettingstarted.html). O PySide6 é dependência opcional; `pip install .` e os instaladores antigos continuam voltados ao terminal.
 
-O workflow `.github/workflows/aplicativo.yml` testa em Ubuntu 24.04 e disponibiliza o pacote como artifact para cada branch/PR. Tags `v*` aprovadas pelo mantenedor geram um Release com o pacote e checksum. O push da branch não publica Release. Não enviar `.env`, estados, logs, diagnósticos ou pacotes locais ao Git.
+O workflow `.github/workflows/aplicativo.yml` testa em Ubuntu 24.04 e disponibiliza o pacote como artifact para cada branch/PR. Tags `v*` aprovadas pelo mantenedor geram um Release com pacote, checksum, manifesto e assinatura. O push da branch não publica Release. Não enviar `.env`, estados, logs, diagnósticos ou pacotes locais ao Git.
 
 ## Limites de validação
 

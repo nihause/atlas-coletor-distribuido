@@ -1,8 +1,8 @@
 # Histórico de versões
 
-## 0.2.2 — publicação autorizada em 15/11/2026
+## 0.2.2 — publicada em 15/11/2026
 
-Janela adaptada ao monitor, painel compacto, atualizador automático com assinatura Ed25519, download com progresso, espera cancelável da coleta, instalação gráfica autorizada e reinício coordenado. Telemetria informativa de atualização no Radar. Workflow de tags com auditoria e manifesto assinado. Publicação pública autorizada na missão de 15/11/2026; resultado registrado em LOG-IA.
+Janela adaptada ao monitor, painel compacto, atualizador automático com assinatura Ed25519, download com progresso, espera cancelável da coleta, instalação gráfica autorizada e reinício coordenado. Telemetria informativa de atualização no Radar. Workflow de tags com auditoria e manifesto assinado. Release oficial: https://github.com/nihause/atlas-coletor-distribuido/releases/tag/v0.2.2. Pacote público e assinatura verificados após publicação.
 
 ## 0.2.1
 

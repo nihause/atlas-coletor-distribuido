@@ -1,4 +1,4 @@
-> Distribuição oficial: [Releases públicos](https://github.com/nihause/atlas-coletor-distribuido/releases). Para Ubuntu 24.04 amd64. Na versão 0.2.1, instale o 0.2.2 uma vez para obter o atualizador com assinatura; mantenha seu .env e sua chave Radar.
+> Versão oficial: [Atlas 0.2.2](https://github.com/nihause/atlas-coletor-distribuido/releases/tag/v0.2.2) · [Baixar instalador Ubuntu 24.04 amd64](https://github.com/nihause/atlas-coletor-distribuido/releases/download/v0.2.2/atlas-coletor_0.2.2_ubuntu24.04_amd64.deb). Repositório público, sem token GitHub. Quem usa 0.2.1 deve instalar o 0.2.2 uma vez para obter o novo atualizador assinado; mantenha seu .env e sua chave Radar.
 
 > Atualização 0.2.2: consulte [atualizações e publicação](docs/ATUALIZACOES.md). Este guia substitui as instruções anteriores de atualização por simples checksum/abertura manual.
 
@@ -32,7 +32,7 @@ Abra o pacote **atlas-coletor_0.2.2_ubuntu24.04_amd64.deb** no instalador do Ubu
 
 Na aba **Configuração**, informe o endereço `https://justisoft.com.br/radar/api/v1`, o nome e a chave individual criada em **Radar → Administração → Coletores**. Clique em **Testar conexão** e depois **Conectar e iniciar**. A tela mostra tarefas, conexão, produtividade e logs sem precisar de terminal. A chave DataJud tem campo próprio, caso este computador execute tarefas DataJud.
 
-Para reutilizar uma instalação, escolha **Abrir .env existente**. As opções extras e os dados locais são preservados. Inicialização automática na sessão Ubuntu e permanência na bandeja são opcionais. A aba **Atualizações** consulta Releases do repositório privado, confere SHA-256 e abre o instalador após confirmação. O mantenedor deve publicar o primeiro Release; branches de desenvolvimento oferecem pacote como artifact do workflow.
+Para reutilizar uma instalação, escolha **Abrir .env existente**. As opções extras e os dados locais são preservados. Inicialização automática na sessão Ubuntu e permanência na bandeja são opcionais. A aba **Atualizações** consulta os Releases públicos ao abrir e a cada seis horas, valida assinatura Ed25519 e SHA-256 e instala somente após autorização, aguardando as tarefas atuais. O Release oficial 0.2.2 já está disponível; branches de desenvolvimento continuam oferecendo artifacts de revisão.
 
 Veja [Aplicativo Linux](docs/APLICATIVO-LINUX.md) para instalação, migração, atualização, diagnóstico, empacotamento e limites dos testes. Para desenvolver: `pip install -e ".[gui,dev,build-gui]"`; para abrir: `atlas-coletor`. O modo terminal abaixo continua disponível e usa o mesmo motor e contrato de API.
 
