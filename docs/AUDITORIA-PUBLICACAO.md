@@ -13,3 +13,5 @@ A primeira dependência cryptography selecionada (46.0.7) tinha alertas no pip-a
 Somente chave pública de assinatura está incorporada. Chave privada nova fica fora do Git, com acesso 600, e no secret de publicação do GitHub. Nenhum .env foi enviado ao GitHub. O segredo de assinatura não aparece nos artifacts nem em PRs.
 
 Resultado: não foi identificado segredo ou risco relevante que impeça preparar a publicação. Alterar a visibilidade e publicar o primeiro Release público continuam pendentes de confirmação explícita do usuário, conforme a missão anexada. Não alegar que a auditoria automatizada substitui revisão contínua.
+
+Validação final: PR #1 integrado em main após Actions 43726971130 e 43726977927 aprovados. Pacote 0.2.2 autenticado localmente; repositório ainda privado e sem Release. Confirmação pública pendente.
