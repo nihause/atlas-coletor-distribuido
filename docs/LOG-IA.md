@@ -1,3 +1,10 @@
+## 2026-11-15 · Codex/GPT-6 · Ritmo ao vivo e comparação dos PCs no Radar
+- **Pedido:** mostrar taxas por hora/24h, tempo crescente e comparação ao acrescentar computadores.
+- **Causa / motivo:** o modal iniciava timer antes de abrir; contadores não mostravam taxas nem comparação.
+- **Mudou:** `integracoes/radar/atividade-ritmo.patch` registra PHP/JS/CSS/testes/docs já aplicados ao Radar, sem Git próprio. Relógio independente das leituras, projeções por amostras válidas após 60 s, comparação anterior, contagens/ritmo por executor e PCs conectados. Sem mudança no Atlas, contrato ou versão 0.2.4; detalhes em docs/atividade-ao-vivo.md dentro do patch.
+- **Testado:** 18 verificações PHP novas e 15 anteriores em temporárias; 24 verificações Firefox/CSP (relógio em pausa, projeções, comparação com caches defasados, falha, virada de dia, reabertura e 390/1280 px). Sintaxe PHP e lint de design aprovados; JS público idêntico ao local (SHA-256). Resumo anterior de referência 0,39 ms; novo cache 0,35 ms e imediato 0,15 ms; EXPLAIN range/PRIMARY, 10 linhas estimadas. Testes Atlas e Gitleaks conferidos antes do commit. NÃO testado: ganho real de captura com PC extra, 24 horas contínuas ou sessão autenticada pública do usuário.
+- **Atenção:** patch já aplicado; não reaplicar neste servidor. Registros por executor podem ser parciais desde ativação da auditoria; recepções não são processos únicos. Sem sudo, restart, migração ou ampliação das coletas/limites; sem novo Release.
+
 ## 2026-11-15 · Codex/GPT-6 · Instaladores nativos Windows e Linux
 - **Pedido:** disponibilizar EXE Windows e DEB Linux com escolha automática no Radar.
 - **Causa / motivo:** o fluxo Windows anterior dependia de Python e PowerShell; não havia instalador autônomo.

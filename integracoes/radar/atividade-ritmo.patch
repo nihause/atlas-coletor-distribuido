@@ -1,0 +1,464 @@
+--- a/radar/assets/hoje.js
++++ b/radar/assets/hoje.js
+@@ -1,34 +1,98 @@
+ (() => {
+   const root = document.querySelector('[data-hoje-painel]');
+   if (!root) return;
+-  const dialog = root.closest('dialog');
+-  const trigger = document.querySelector('[data-hoje-abrir]');
++  const dialog = root.closest('dialog'), trigger = document.querySelector('[data-hoje-abrir]');
+   const active = () => !dialog || dialog.open;
+-  let requestController;
+-  const status = root.querySelector('[data-hoje-status]');
+-  const button = root.querySelector('[data-hoje-pausar]');
++  const find = selector => root.querySelector(selector);
++  const status = find('[data-hoje-status]'), button = find('[data-hoje-pausar]');
+   const format = new Intl.NumberFormat('pt-BR');
+-  let baseline = {}, day = '', paused = false, busy = false, timer;
+-  const bar = root.querySelector('[data-hoje-progresso]');
+-  const countdown = root.querySelector('[data-hoje-contagem]');
+-  let nextAt = 0, startedAt = 0, clock;
+-  // Tempo da tela aberta (desde a abertura ou desde o último zeramento dos contadores) e hora atual de São Paulo, para medir produtividade.
+-  const tempo = root.querySelector('[data-hoje-tempo]');
+   const horaSP = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+-  let openedAt = Date.now(), tempoTimer;
++  let baseline = {}, day = '', paused = false, busy = false, timer, requestController;
++  let nextAt = 0, startedAt = 0, clock, openedAt = performance.now(), tempoTimer;
++  let dailySample = null, collectionSample = null, dailyLast = null, collectionLast = null;
++  let previous = null, markPending = false;
++  const bar = find('[data-hoje-progresso]'), countdown = find('[data-hoje-contagem]');
++  const duration = ms => {
++    const s = Math.max(0, Math.floor(ms / 1000)), p = n => String(n).padStart(2, '0');
++    return `${p(Math.floor(s / 3600))}:${p(Math.floor(s % 3600 / 60))}:${p(s % 60)}`;
++  };
++  function clearReadings() {
++    root.querySelectorAll('[data-hoje-valor]').forEach(node => { node.textContent = '…'; });
++    root.querySelectorAll('[data-hoje-delta]').forEach(node => { node.textContent = 'Aguardando leitura'; });
++    find('[data-hoje-executores]').replaceChildren();
++    find('[data-hoje-online]').textContent = 'Aguardando coletores';
++    find('[data-hoje-comparacao]').textContent = 'Para comparar, deixe medir por alguns minutos, marque a comparação e depois conecte outro PC.';
++  }
+   function drawTempo() {
+-    if (!tempo) return;
+-    const s = Math.max(0, Math.floor((Date.now() - openedAt) / 1000)), p = n => String(n).padStart(2, '0');
+-    tempo.textContent = `Tela aberta há ${p(Math.floor(s / 3600))}:${p(Math.floor(s % 3600 / 60))}:${p(s % 60)} · Agora: ${horaSP.format(new Date())} (horário de São Paulo)`;
++    find('[data-hoje-tempo]').textContent = `Tela aberta há ${duration(performance.now() - openedAt)} · Agora: ${horaSP.format(new Date())} (horário de São Paulo)`;
+   }
+   function startTempo() { clearInterval(tempoTimer); drawTempo(); if (active()) tempoTimer = setInterval(drawTempo, 1000); }
++  function rate(first, last, key) {
++    if (!first || !last || last.time - first.time < 60000) return null;
++    const diff = last.values[key] - first.values[key];
++    return Number.isFinite(diff) && diff >= 0 ? diff * 3600000 / (last.time - first.time) : null;
++  }
++  function renderRates() {
++    for (const key of ['novos', 'atualizados', 'publicacoes']) {
++      const first = key === 'publicacoes' ? collectionSample : dailySample;
++      const last = key === 'publicacoes' ? collectionLast : dailyLast;
++      const value = rate(first, last, key);
++      find(`[data-hoje-taxa="${key}"]`).textContent = value === null ? 'Aguardando' : format.format(Math.round(value));
++      find(`[data-hoje-projecao="${key}"]`).textContent = value === null ? 'Aguardando' : format.format(Math.round(value * 24));
++    }
++    const elapsed = dailySample && dailyLast ? dailyLast.time - dailySample.time : 0;
++    find('[data-hoje-amostra]').textContent = markPending ? 'Aguardando nova leitura para iniciar a comparação.' : elapsed < 60000 ? `Medindo há ${duration(elapsed)}. A projeção aparece após 1 minuto de leituras válidas.` : `Média de ${duration(elapsed)} entre leituras. Projeção para 24 horas mantendo este ritmo; não é o total já capturado hoje.`;
++    if (previous) {
++      const current = rate(dailySample, dailyLast, 'novos');
++      const change = !markPending && current !== null && previous.rate > 0 ? ` · variação de ${format.format(Math.round((current / previous.rate - 1) * 100))}% no ritmo de novos` : '';
++      find('[data-hoje-comparacao]').textContent = `Medição anterior: ${format.format(Math.round(previous.rate))} novos/h em ${duration(previous.elapsed)} · PCs conectados: ${previous.pcStart} → ${previous.pcEnd}${change}. Compare períodos semelhantes; os limites das fontes são compartilhados.`;
++    }
++  }
++  function collect(data) {
++    if (!data || data.erro || !Array.isArray(data.executores) || !Number.isSafeInteger(data.online)) {
++      find('[data-hoje-coleta-status]').textContent = 'Leitura dos coletores indisponível. Últimos números preservados.';
++      return;
++    }
++    const time = Date.parse(data.gerado_em);
++    if (!Number.isFinite(time)) return;
++    const values = { publicacoes: 0 }, rows = [];
++    for (const row of data.executores) {
++      if (!['novos', 'publicacoes', 'recepcoes'].every(k => Number.isSafeInteger(row[k]) && row[k] >= 0) || typeof row.id !== 'string') return;
++      values.publicacoes += row.publicacoes; values[row.id] = row; rows.push(row);
++    }
++    const sample = { time, values, online: data.online };
++    if (collectionLast && time < collectionLast.time) return;
++    if (!collectionSample || values.publicacoes < collectionSample.values.publicacoes) collectionSample = sample;
++    collectionLast = sample;
++    find('[data-hoje-online]').textContent = `${data.online} PC${data.online === 1 ? '' : 's'} conectado${data.online === 1 ? '' : 's'} · servidor à parte`;
++    const tbody = find('[data-hoje-executores]'); tbody.replaceChildren();
++    for (const row of rows) {
++      // Um PC cadastrado no meio do intervalo começa a ser medido na primeira leitura dele.
++      if (!collectionSample.values[row.id] || ['novos', 'publicacoes', 'recepcoes'].some(k => row[k] < collectionSample.values[row.id][k])) {
++        collectionSample.values[row.id] = { ...row, since: time };
++      }
++      const initial = collectionSample.values[row.id];
++      const elapsed = time - (initial.since ?? collectionSample.time);
++      const tr = document.createElement('tr'), label = document.createElement('th'), state = document.createElement('span');
++      label.scope = 'row'; label.textContent = row.nome || row.id;
++      state.textContent = `${row.situacao} · ${row.id}`; label.append(state); tr.append(label);
++      for (const key of ['novos', 'publicacoes', 'recepcoes']) {
++        const cell = document.createElement('td'), diff = row[key] - initial[key];
++        cell.textContent = key === 'recepcoes' ? format.format(diff) : elapsed < 60000 ? 'Aguardando' : format.format(Math.round(diff * 3600000 / elapsed));
++        if (key === 'recepcoes' && elapsed >= 60000) {
++          const hourly = document.createElement('span'); hourly.textContent = `${format.format(Math.round(diff * 3600000 / elapsed))}/h`; cell.append(hourly);
++        }
++        tr.append(cell);
++      }
++      tbody.append(tr);
++    }
++    find('[data-hoje-coleta-status]').textContent = `Registrado desde ${data.registro_desde || 'a ativação da auditoria'}. Taxas por hora e recepções medidas desde a primeira leitura de cada coletor; recepções incluem enriquecimento DataJud e não são processos únicos.`;
++  }
+   function drawClock() {
+-    if (!bar || !countdown) return;
+     if (paused) { if (!bar.hasAttribute('value')) bar.value = 0; countdown.textContent = 'Atualização pausada'; return; }
+     if (document.hidden) { countdown.textContent = 'Atualização suspensa enquanto a aba estiver oculta'; return; }
+     if (busy) {
+-      bar.removeAttribute('value');
+-      bar.setAttribute('aria-label', 'Consultando dados');
++      bar.removeAttribute('value'); bar.setAttribute('aria-label', 'Consultando dados');
+       countdown.textContent = `Atualizando dados · ${Math.floor((performance.now() - startedAt) / 1000)} s`;
+     } else {
+       const remaining = Math.max(0, nextAt - performance.now());
+@@ -53,42 +117,58 @@
+       if (response.status === 401) { paused = true; button.disabled = true; throw new Error('Sua sessão expirou. Entre novamente no Radar.'); }
+       if (!response.ok) throw new Error('Sem atualização agora. Tentando novamente em 15 segundos; últimos números preservados.');
+       const data = await response.json();
+-      if (day !== data.dia) { baseline = {}; day = data.dia; openedAt = Date.now(); drawTempo(); }
+-      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('Resposta indisponível. Tentando novamente em 15 segundos.');
+-      root.querySelector('[data-hoje-dia]').textContent = day.split('-').reverse().join('/');
+-      root.querySelectorAll('[data-hoje-valor]').forEach(node => {
+-        const key = node.dataset.hojeValor, value = data.valores?.[key];
+-        const delta = root.querySelector(`[data-hoje-delta="${key}"]`);
+-        if (!Number.isSafeInteger(value) || value < 0) { node.textContent = '…'; delta.textContent = 'Aguardando leitura'; return; }
+-        if (!(key in baseline)) baseline[key] = value;
+-        const diff = value - baseline[key];
+-        node.textContent = format.format(value);
+-        delta.textContent = `${diff > 0 ? '+' : ''}${format.format(diff)} desde que abriu`;
+-      });
++      if (!/^\d{4}-\d{2}-\d{2}$/.test(data.dia)) throw new Error('Resposta indisponível. Tentando novamente em 15 segundos.');
++      if (day !== data.dia) { baseline = {}; day = data.dia; dailySample = dailyLast = collectionSample = collectionLast = previous = null; clearReadings(); }
++      if (markPending && !data.erro && Date.parse(data.gerado_em) > markPending.daily && !data.coleta?.erro && Date.parse(data.coleta?.gerado_em) > markPending.collection) {
++        dailySample = collectionSample = null; markPending = false;
++      }
++      find('[data-hoje-dia]').textContent = day.split('-').reverse().join('/');
++      if (!data.erro) {
++        root.querySelectorAll('[data-hoje-valor]').forEach(node => {
++          const key = node.dataset.hojeValor, value = data.valores?.[key], delta = find(`[data-hoje-delta="${key}"]`);
++          if (!Number.isSafeInteger(value) || value < 0) { node.textContent = '…'; delta.textContent = 'Aguardando leitura'; return; }
++          if (!(key in baseline)) baseline[key] = value;
++          const diff = value - baseline[key]; node.textContent = format.format(value);
++          delta.textContent = `${diff > 0 ? '+' : ''}${format.format(diff)} desde que abriu`;
++        });
++        const time = Date.parse(data.gerado_em), values = { novos: data.valores?.processos_novos, atualizados: data.valores?.processos_atualizados };
++        if (Number.isFinite(time) && Object.values(values).every(n => Number.isSafeInteger(n) && n >= 0) && (!dailyLast || time >= dailyLast.time)) {
++          const sample = { time, values };
++          if (!dailySample || Object.keys(values).some(k => values[k] < dailySample.values[k])) dailySample = sample;
++          dailyLast = sample;
++        }
++      }
++      if (data.coleta?.dia === day) collect(data.coleta);
++      renderRates();
+       const updated = data.gerado_em ? new Date(data.gerado_em).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : null;
+       status.textContent = data.erro ? `Leitura temporariamente indisponível. ${updated ? 'Últimos dados: ' + updated : 'Aguardando dados.'}` : updated ? `Acompanhando · última leitura: ${updated} · atualização a cada 15 segundos` : 'Preparando leitura. Nova tentativa em 15 segundos.';
+     } catch (error) { status.textContent = error.name === 'AbortError' ? 'Leitura demorou. Últimos números preservados; nova tentativa em 15 segundos.' : error.message; }
+-    finally { clearTimeout(timeout); busy = false; schedule(); }
++    finally { clearTimeout(timeout); busy = false; if (active()) schedule(); }
+   }
++  find('[data-hoje-comparar]').addEventListener('click', () => {
++    const value = rate(dailySample, dailyLast, 'novos');
++    if (value === null) { find('[data-hoje-comparacao]').textContent = 'Aguarde pelo menos 1 minuto de leituras válidas antes de marcar a comparação.'; return; }
++    previous = { rate: value, elapsed: dailyLast.time - dailySample.time, pcStart: collectionSample?.online ?? 0, pcEnd: collectionLast?.online ?? 0 };
++    markPending = { daily: dailyLast.time, collection: collectionLast?.time || 0 }; renderRates(); refresh();
++  });
+   button.addEventListener('click', () => { paused = !paused; button.setAttribute('aria-pressed', String(paused)); button.textContent = paused ? 'Retomar atualização' : 'Pausar atualização'; clearTimeout(timer); if (paused) { status.textContent = 'Atualização pausada. Números preservados.'; clearInterval(clock); drawClock(); } else refresh(); });
+-  document.addEventListener('visibilitychange', () => { clearTimeout(timer); clearInterval(clock); if (!document.hidden) refresh(); else drawClock(); });
++  document.addEventListener('visibilitychange', () => { clearTimeout(timer); clearInterval(clock); if (!document.hidden) { startTempo(); refresh(); } else drawClock(); });
+   window.addEventListener('pagehide', () => { clearTimeout(timer); clearInterval(clock); clearInterval(tempoTimer); });
+-  window.addEventListener('pageshow', event => { if (event.persisted) refresh(); });
++  window.addEventListener('pageshow', event => { if (event.persisted) { startTempo(); refresh(); } });
+   if (dialog && trigger && typeof dialog.showModal === 'function') {
+     function openPanel() {
+-      baseline = {}; day = ''; paused = false; openedAt = Date.now(); startTempo();
++      if (dialog.open) return;
++      baseline = {}; day = ''; paused = false; openedAt = performance.now(); dailySample = dailyLast = collectionSample = collectionLast = previous = null; markPending = false; clearReadings(); renderRates();
+       button.disabled = false; button.textContent = 'Pausar atualização'; button.setAttribute('aria-pressed', 'false');
+-      if (!dialog.open) dialog.showModal(); refresh();
++      dialog.showModal(); startTempo(); refresh();
+     }
+     trigger.addEventListener('click', event => { event.preventDefault(); openPanel(); });
+     if (new URLSearchParams(location.search).get('atividade') === 'ao_vivo') {
+-      openPanel();
+-      const url = new URL(location.href); url.searchParams.delete('atividade'); history.replaceState(null, '', url);
++      openPanel(); const url = new URL(location.href); url.searchParams.delete('atividade'); history.replaceState(null, '', url);
+     }
+-    root.querySelector('[data-hoje-fechar]').addEventListener('click', () => dialog.close());
++    find('[data-hoje-fechar]').addEventListener('click', () => dialog.close());
+     dialog.addEventListener('close', () => { clearTimeout(timer); clearInterval(clock); clearInterval(tempoTimer); requestController?.abort(); trigger.focus(); });
+     dialog.addEventListener('click', event => { const rect = dialog.getBoundingClientRect(); if (event.target === dialog && (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom)) dialog.close(); });
+   }
+-  startTempo();
+-  refresh();
++  startTempo(); refresh();
+ })();
+--- a/radar/lib/hoje_painel.php
++++ b/radar/lib/hoje_painel.php
+@@ -18,15 +18,25 @@
+ <div class="hoje-atualizador ds-stack"><p class="ds-text-sm ds-text-muted" data-hoje-status role="status">Carregando contadores…</p>
+ <p class="ds-text-sm" data-hoje-tempo aria-live="off">Tela aberta há 00:00:00 · Agora: --:--:-- (horário de São Paulo)</p>
+ <div class="ds-stack"><label class="ds-text-sm" for="hoje-progresso" data-hoje-contagem>Consultando dados…</label><progress id="hoje-progresso" class="ds-meter" max="15" data-hoje-progresso aria-label="Tempo até a próxima atualização"></progress></div></div>
++<section class="ds-stack hoje-ritmo" aria-labelledby="hoje-ritmo-titulo">
++<div class="ds-row"><h3 class="ds-h3" id="hoje-ritmo-titulo">Ritmo de captura</h3><span class="ds-badge ds-badge--info" data-hoje-online>Aguardando coletores</span><button type="button" class="ds-btn ds-btn--secondary ds-btn--sm" data-hoje-comparar>Marcar comparação e medir novamente</button></div>
++<p class="ds-text-sm ds-text-muted" data-hoje-amostra>A projeção aparece após 1 minuto de leituras válidas.</p>
++<div class="ds-table-wrap"><table class="ds-table hoje-taxas"><thead><tr><th scope="col">Captura</th><th scope="col">Por hora</th><th scope="col">Projeção em 24h</th></tr></thead><tbody>
++<?php foreach(['novos'=>'Processos novos','atualizados'=>'Processos anteriores atualizados','publicacoes'=>'Publicações novas'] as $key=>$label): ?><tr><th scope="row"><?= e($label) ?></th><td data-hoje-taxa="<?= e($key) ?>">Aguardando</td><td data-hoje-projecao="<?= e($key) ?>">Aguardando</td></tr><?php endforeach; ?>
++</tbody></table></div>
++<p class="ds-text-sm" data-hoje-comparacao>Para comparar, deixe medir por alguns minutos, marque a comparação e depois conecte outro PC.</p>
++</section>
++<section class="ds-stack"><h3 class="ds-h3">Contribuição de cada coletor</h3><p class="ds-text-sm ds-text-muted" data-hoje-coleta-status>Contagens recebidas durante este acompanhamento. Aguardando leitura.</p>
++<div class="ds-table-wrap"><table class="ds-table hoje-executores"><thead><tr><th scope="col">Coletor</th><th scope="col">Novos /h</th><th scope="col">Publicações /h</th><th scope="col">Recepções · total e /h</th></tr></thead><tbody data-hoje-executores><tr><td colspan="4">Aguardando primeira leitura</td></tr></tbody></table></div></section>
+ <div class="hoje-processos">
+ <?php foreach(array_slice($itens,0,2,true) as $chave=>[$rotulo,$rota]): ?><a class="ds-card ds-stat" href="<?= BASE ?>/<?= e($rota) ?>"><strong data-hoje-valor="<?= e($chave) ?>">…</strong><?= e($rotulo) ?><p class="ds-text-sm ds-text-muted" data-hoje-delta="<?= e($chave) ?>">Aguardando primeira leitura</p></a><?php endforeach; ?>
+ </div>
+-<div class="ds-table-wrap"><table class="ds-table hoje-cadastros"><caption>Cadastros de hoje</caption><thead><tr><th scope="col">Cadastro</th><th scope="col">Novos hoje</th><th scope="col">Atualizados hoje</th></tr></thead><tbody>
++<details class="hoje-explicacao"><summary>Ver Partes, Advogados e Varas de hoje</summary><div class="ds-table-wrap"><table class="ds-table hoje-cadastros"><caption>Cadastros de hoje</caption><thead><tr><th scope="col">Cadastro</th><th scope="col">Novos hoje</th><th scope="col">Atualizados hoje</th></tr></thead><tbody>
+ <?php foreach(['partes'=>'Partes','advogados'=>'Advogados','varas'=>'Varas'] as $cadastro=>$nome): ?><tr><th scope="row"><?= e($nome) ?></th><?php foreach(['novos','atualizados'] as $tipo): $chave=$cadastro.'_'.$tipo; ?><td><a href="<?= BASE ?>/<?= e($itens[$chave][1]) ?>"><strong data-hoje-valor="<?= e($chave) ?>">…</strong><span class="ds-text-muted" data-hoje-delta="<?= e($chave) ?>">Aguardando leitura</span></a></td><?php endforeach; ?></tr><?php endforeach; ?>
+-</tbody></table></div>
++</tbody></table></div></details>
+ <details class="hoje-explicacao"><summary>Como os números são contados</summary>
+ <p class="ds-text-sm ds-text-muted">Atualiza a cada 15 segundos enquanto esta aba estiver visível. A variação mostra a mudança desde a abertura desta tela e reinicia na virada do dia. As contagens podem diminuir após correções no cadastro.</p>
+-<p class="ds-text-sm ds-text-muted">Processos anteriores atualizados contam uma vez por dia. Nos demais cadastros, as atualizações incluem gravações dos coletores; novos de hoje ficam no contador de novos. Esta tela acompanha os dados recebidos e não inicia coletas.</p>
++<p class="ds-text-sm ds-text-muted">Processos anteriores atualizados contam uma vez por dia. Nos demais cadastros, as atualizações incluem gravações dos coletores; novos de hoje ficam no contador de novos. Esta tela acompanha os dados recebidos e não inicia coletas. As taxas são médias do intervalo observado, não garantias: projeção de 24 horas = ritmo por hora × 24, se esse ritmo continuar. Mais PCs podem compartilhar o mesmo limite da API e não aumentam a captura de forma linear. Recepções incluem repetições e enriquecimento; não são processos únicos. O registro por coletor começa na ativação da auditoria e pode cobrir apenas parte do dia.</p>
+ </details>
+ <noscript><p class="ds-alert ds-alert--warning">Ative JavaScript para acompanhar a atualização automática.</p></noscript>
+ </div>
+--- a/radar/hoje-status.php
++++ b/radar/hoje-status.php
+@@ -2,8 +2,9 @@
+ declare(strict_types=1);
+ require __DIR__.'/lib/bootstrap.php';
+ require __DIR__.'/lib/painel_hoje.php';
++require __DIR__.'/lib/painel_coleta.php';
+ header('Content-Type: application/json; charset=utf-8');header('Cache-Control: no-store');
+ if(!current_user()){http_response_code(401);echo json_encode(['erro'=>'sessao_expirada']);exit;}
+ if(session_status()===PHP_SESSION_ACTIVE)session_write_close();
+-try{echo json_encode(painel_hoje_ler(db()),JSON_UNESCAPED_UNICODE);}
++try{$p=db();$dados=painel_hoje_ler($p);$dados['coleta']=painel_coleta_ler($p);echo json_encode($dados,JSON_UNESCAPED_UNICODE);}
+ catch(Throwable $e){http_response_code(503);echo json_encode(['erro'=>'indisponivel']);}
+--- /dev/null
++++ b/radar/lib/painel_coleta.php
+@@ -0,0 +1,38 @@
++<?php
++declare(strict_types=1);
++/** Apenas agregados horários e cadastro pequeno de coletores; não consulta o acervo. */
++function painel_coleta_ler(PDO $p, ?int $agora=null): array
++{
++    $agora ??= time();
++    $data=(new DateTimeImmutable('@'.$agora))->setTimezone(new DateTimeZone('America/Sao_Paulo'));
++    $dia=$data->format('Y-m-d');
++    $q=$p->prepare('SELECT valor FROM coleta_rotina_config WHERE chave=?');$q->execute(['painel_coleta_cache']);
++    $cache=json_decode((string)$q->fetchColumn(),true)?:[];
++    if(($cache['dia']??'')!==$dia)$cache=['dia'=>$dia,'gerado_em'=>null,'executores'=>[],'online'=>0];
++    if($agora-(int)($cache['tentado_em']??0)<15)return $cache;
++    if(!(int)$p->query("SELECT GET_LOCK('radar2.painel_coleta',0)")->fetchColumn())return $cache;
++    try {
++        $q->execute(['painel_coleta_cache']);$recente=json_decode((string)$q->fetchColumn(),true)?:[];
++        if(($recente['dia']??'')===$dia&&$agora-(int)($recente['tentado_em']??0)<15)return $recente;
++        $cache['tentado_em']=$agora;
++        try {
++            $s=$p->prepare('SELECT /*+ MAX_EXECUTION_TIME(1500) */ executor,SUM(processos_novos) novos,SUM(publicacoes_novas) publicacoes,SUM(recepcoes) recepcoes FROM coleta_executor_hora WHERE hora>=? AND hora<? GROUP BY executor');
++            $s->execute([$dia.' 00:00:00',$data->modify('+1 day')->format('Y-m-d').' 00:00:00']);
++            $linhas=['servidor'=>['id'=>'servidor','nome'=>'Servidor Radar','situacao'=>'Local','novos'=>0,'publicacoes'=>0,'recepcoes'=>0]];
++            foreach($s as $r){$id=(string)$r['executor'];$linhas[$id]=['id'=>$id,'nome'=>$id==='servidor'?'Servidor Radar':substr($id,6),'situacao'=>$id==='servidor'?'Local':'Sem conexão','novos'=>(int)$r['novos'],'publicacoes'=>(int)$r['publicacoes'],'recepcoes'=>(int)$r['recepcoes']];}
++            $online=0;
++            foreach($p->query('SELECT /*+ MAX_EXECUTION_TIME(1500) */ id,nome,estado,ultimo_sinal_em FROM coletores ORDER BY id') as $c){
++                $id='atlas:'.$c['id'];
++                $conectado=$c['ultimo_sinal_em'] && strtotime($c['ultimo_sinal_em']) >= $agora-120;
++                $ativo=$conectado && $c['estado']==='ativo';$online+=(int)$ativo;
++                $linhas[$id]??=['id'=>$id,'novos'=>0,'publicacoes'=>0,'recepcoes'=>0];
++                $linhas[$id]['nome']=(string)($c['nome']?:$c['id']);
++                $linhas[$id]['situacao']=$c['estado']==='desativado'?'Desativado':($c['estado']==='pausado'?'Pausado':($ativo?'Conectado':'Sem conexão'));
++            }
++            $q->execute(['origem_importacao_inicio']);$desde=$q->fetchColumn();
++            $cache=['dia'=>$dia,'tentado_em'=>$agora,'gerado_em'=>$data->format(DATE_ATOM),'executores'=>array_values($linhas),'online'=>$online,'registro_desde'=>$desde?:null,'erro'=>false];
++        } catch(Throwable $e) {$cache['erro']=true;error_log('radar_painel_coleta: leitura indisponível; código '.$e->getCode());}
++        $p->prepare('INSERT INTO coleta_rotina_config(chave,valor) VALUES(?,?) ON DUPLICATE KEY UPDATE valor=VALUES(valor)')->execute(['painel_coleta_cache',json_encode($cache,JSON_UNESCAPED_UNICODE)]);
++        return $cache;
++    } finally {$p->query("SELECT RELEASE_LOCK('radar2.painel_coleta')");}
++}
+--- a/src/design/components.css
++++ b/src/design/components.css
+@@ -820,3 +820,16 @@
+ .fila-coleta-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); gap: var(--space-md); }
+ .fila-coleta-card { padding: var(--space-md); min-width: 0; overflow-wrap: anywhere; }
+ .fila-coleta-card h3 { margin-top: 0; }
++
++/* Atividade ao vivo: ritmo medido e comparação dos computadores. */
++.hoje-ritmo, .hoje-painel > section { gap: var(--space-sm); min-width: 0; }
++.hoje-taxas, .hoje-executores { width: 100%; table-layout: fixed; }
++.hoje-taxas th, .hoje-taxas td, .hoje-executores th, .hoje-executores td { padding: var(--space-xs) var(--space-sm); overflow-wrap: anywhere; }
++.hoje-taxas td, .hoje-executores td { text-align: right; font-variant-numeric: tabular-nums; }
++.hoje-taxas td { font-size: var(--text-xl); font-weight: var(--weight-semibold); color: var(--color-action-primary); }
++.hoje-executores th span, .hoje-executores td span { display: block; font-size: var(--text-xs); font-weight: var(--weight-regular); color: var(--color-text-muted); }
++.hoje-painel [data-hoje-tempo] { font-variant-numeric: tabular-nums; }
++@media (max-width: 640px) {
++  .hoje-taxas td { font-size: var(--text-lg); }
++  .hoje-executores th, .hoje-executores td { padding: var(--space-xs); font-size: var(--text-xs); }
++}
+--- /dev/null
++++ b/tests/painel-coleta.php
+@@ -0,0 +1,18 @@
++<?php
++declare(strict_types=1);
++require __DIR__.'/../radar/lib/cli.php';require __DIR__.'/../radar/lib/painel_coleta.php';
++$p=db();$n=0;$ok=function($v)use(&$n){if(!$v)throw new RuntimeException('Falha '.($n+1));++$n;};
++$p->exec('CREATE TEMPORARY TABLE coleta_rotina_config(chave VARCHAR(200) PRIMARY KEY,valor LONGTEXT)');
++$p->exec('CREATE TEMPORARY TABLE coleta_executor_hora(hora DATETIME,executor VARCHAR(80),fonte VARCHAR(20),processos_novos BIGINT,publicacoes_novas BIGINT,recepcoes BIGINT,PRIMARY KEY(hora,executor,fonte))');
++$p->exec('CREATE TEMPORARY TABLE coletores(id VARCHAR(64) PRIMARY KEY,nome VARCHAR(100),estado VARCHAR(20),ultimo_sinal_em DATETIME)');
++$now=strtotime(date('Y-m-d').' 12:00:00');$day=date('Y-m-d',$now);$yesterday=date('Y-m-d',$now-86400);
++$p->exec("INSERT INTO coleta_executor_hora VALUES('$day 10:00:00','servidor','djen',3,4,5),('$day 11:00:00','atlas:pc1','djen',10,20,30),('$day 11:00:00','atlas:pc1','datajud',0,0,40),('$yesterday 11:00:00','atlas:pc1','djen',900,900,900),('$day 11:00:00','atlas:removido','djen',1,2,3)");
++$p->exec("INSERT INTO coletores VALUES('pc1','PC 1','ativo','$day 11:59:00'),('pc2','PC 2','ativo','$day 11:00:00'),('pc3','PC 3','pausado','$day 11:59:00')");
++$a=painel_coleta_ler($p,$now);$rows=array_column($a['executores'],null,'id');
++$ok(!$a['erro']);$ok($a['online']===1);$ok($rows['atlas:pc1']['novos']===10);$ok($rows['atlas:pc1']['recepcoes']===70);$ok($rows['atlas:pc1']['publicacoes']===20);
++$ok($rows['atlas:pc2']['situacao']==='Sem conexão');$ok($rows['atlas:pc3']['situacao']==='Pausado');$ok($rows['servidor']['situacao']==='Local');$ok($rows['atlas:removido']['novos']===1);
++$p->exec("UPDATE coletores SET ultimo_sinal_em='$day 12:00:05' WHERE id='pc2'");$b=painel_coleta_ler($p,$now+5);$ok($b['online']===1);
++$b=painel_coleta_ler($p,$now+16);$ok($b['online']===2);$ok($b['gerado_em']!==$a['gerado_em']);
++$p->exec('ALTER TABLE coleta_executor_hora DROP COLUMN recepcoes');$c=painel_coleta_ler($p,$now+32);$ok($c['erro']);$ok($c['executores']===$b['executores']);$ok($c['gerado_em']===$b['gerado_em']);
++$c=painel_coleta_ler($p,$now+86400);$ok($c['executores']===[]);$ok($c['gerado_em']===null);$ok($c['dia']!==$day);
++echo "$n verificações de coletores/cache/heartbeat/falha/virada do dia aprovadas.\n";
+--- /dev/null
++++ b/tests/painel-hoje-browser.py
+@@ -0,0 +1,98 @@
++"""Regressão Firefox/CSP. Inicie geckodriver na porta 4445; API/contagens simuladas, sem coleta real."""
++import http.server,threading,urllib.request,json,time,base64,subprocess,tempfile,atexit,os
++from pathlib import Path
++from datetime import datetime,timedelta,timezone
++ROOT=Path(__file__).resolve().parents[1]
++TEMP=tempfile.TemporaryDirectory(prefix='radar-vazao-browser-');atexit.register(TEMP.cleanup);ARTIFACTS=Path(TEMP.name)
++php="""<?php
++require %s;require %s;
++echo '<!doctype html><html lang="pt-BR" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/src/design/tokens.css"><link rel="stylesheet" href="/src/design/components.css"></head><body><button data-hoje-abrir>Abrir atividade</button><dialog class="ds-modal hoje-modal" id="hoje-modal">';
++hoje_painel_render(true);
++echo '</dialog><script defer src="/radar/assets/hoje.js"></script></body></html>';
++""" % (json.dumps(str(ROOT/'radar/lib/bootstrap_core.php')),json.dumps(str(ROOT/'radar/lib/hoje_painel.php')))
++(ARTIFACTS/'fixture.html').write_bytes(subprocess.check_output(['php'],input=php.encode()))
++payload={};calls=0;http_status=200
++class Handler(http.server.SimpleHTTPRequestHandler):
++ def do_GET(self):
++  global calls
++  if self.path.startswith('/radar/hoje-status.php'):
++   calls+=1;self.send_response(http_status);self.send_header('Content-Type','application/json');self.end_headers();self.wfile.write(json.dumps(payload).encode());return
++  path=(ARTIFACTS/'fixture.html') if self.path=='/' else ROOT/self.path.split('?')[0].lstrip('/')
++  if not path.is_file():self.send_error(404);return
++  self.send_response(200);self.send_header('Content-Security-Policy',"default-src 'self'; frame-ancestors 'none'; form-action 'self'");self.send_header('Content-Type','text/html' if path.suffix=='.html' else 'text/javascript' if path.suffix=='.js' else 'text/css');self.end_headers();self.wfile.write(path.read_bytes())
++ def log_message(self,*args):pass
++server=http.server.HTTPServer(('127.0.0.1',0),Handler);threading.Thread(target=server.serve_forever,daemon=True).start()
++def call(path,data=None,method=None):
++ req=urllib.request.Request(os.environ.get('WEBDRIVER_URL','http://127.0.0.1:4445')+path,data=json.dumps(data).encode() if data is not None else None,headers={'Content-Type':'application/json'},method=method)
++ return json.load(urllib.request.urlopen(req))['value']
++sid=call('/session',{'capabilities':{'alwaysMatch':{'browserName':'firefox','moz:firefoxOptions':{'args':['-headless']}}}})['sessionId'];base='/session/'+sid
++checks=0
++def js(script):return call(base+'/execute/sync',{'script':script,'args':[]})
++def check(value,msg):
++ global checks
++ assert value,msg;checks+=1
++
++def wait(predicate):
++ end=time.monotonic()+8
++ while not predicate() and time.monotonic()<end:time.sleep(.05)
++ assert predicate()
++
++def sample(seconds=0,new=100,updated=200,pub=300,online=1,day='2026-11-15'):
++ d=datetime.fromisoformat(day+'T15:00:00-03:00')+timedelta(seconds=seconds)
++ vals=dict(processos_novos=new,processos_atualizados=updated,**{a+'_'+b:0 for a in ['partes','advogados','varas'] for b in ['novos','atualizados']})
++ return dict(dia=day,valores=vals,gerado_em=d.isoformat(),erro=False,coleta=dict(dia=day,gerado_em=d.isoformat(),erro=False,online=online,registro_desde='15/11/2026 12:00',executores=[dict(id='servidor',nome='Servidor Radar',situacao='Local',novos=new-50,publicacoes=pub-100,recepcoes=pub),dict(id='atlas:pc1',nome='PC 1 <script>não executar</script>',situacao='Conectado',novos=50,publicacoes=100,recepcoes=200)]))
++def refresh(new):
++ global payload
++ payload=new;before=calls
++ js("document.querySelector('[data-hoje-pausar]').click(); document.querySelector('[data-hoje-pausar]').click()")
++ wait(lambda:calls>before);time.sleep(.15)
++try:
++ payload=sample();call(base+'/url',{'url':f'http://127.0.0.1:{server.server_port}/'})
++ check(calls==0,'Modal fechado não consulta')
++ js("document.querySelector('[data-hoje-abrir]').click()")
++ wait(lambda:js("return document.querySelector('[data-hoje-valor=processos_novos]').textContent")=='100')
++ first=js("return document.querySelector('[data-hoje-tempo]').textContent");time.sleep(2.1)
++ check(js("return document.querySelector('[data-hoje-tempo]').textContent")!=first,'Relógio avança com modal aberto')
++ check(js("return document.querySelector('[data-hoje-taxa=novos]').textContent")=='Aguardando','Não projeta antes de 1 minuto')
++ js("document.querySelector('[data-hoje-pausar]').click()")
++ paused_clock=js("return document.querySelector('[data-hoje-tempo]').textContent");paused_calls=calls;time.sleep(1.1)
++ check(js("return document.querySelector('[data-hoje-tempo]').textContent")!=paused_clock,'Relógio continua com leitura pausada')
++ check(calls==paused_calls,'Pausa não solicita dados')
++ js("document.querySelector('[data-hoje-pausar]').click()");wait(lambda:calls>paused_calls);time.sleep(.15)
++ refresh(sample(60,110,205,320))
++ check(js("return document.querySelector('[data-hoje-taxa=novos]').textContent")=='600','10 novos em minuto = 600/h')
++ check(js("return document.querySelector('[data-hoje-projecao=novos]').textContent")=='14.400','Projeção 24h correta')
++ check(js("return document.querySelector('[data-hoje-taxa=atualizados]').textContent")=='300','Atualizados separados')
++ check(js("return document.querySelector('[data-hoje-taxa=publicacoes]').textContent")=='1.200','Publicações separadas')
++ check(js("return document.querySelector('[data-hoje-executores] script')===null"),'Nomes são texto seguro')
++ js("document.querySelector('[data-hoje-comparar]').click()")
++ transitional=sample(75,112,206,324,2);transitional['coleta']=sample(60,110,205,320)['coleta']
++ refresh(transitional)
++ aligned=sample(75,112,206,328,2);aligned['coleta']=sample(90,112,206,328,2)['coleta']
++ refresh(aligned)
++ check(js("return document.querySelector('[data-hoje-taxa=novos]').textContent")=='Aguardando','Nova medição começa após fotografia nova')
++ refresh(sample(135,132,216,364,2))
++ check(js("return document.querySelector('[data-hoje-taxa=novos]').textContent")=='1.200','Novo período usa nova base')
++ check(js("return document.querySelector('[data-hoje-comparacao]').textContent.includes('100%')"),'Compara 600/h para 1200/h')
++ check(js("return document.querySelector('[data-hoje-online]').textContent.startsWith('2 PCs')"),'Mostra PCs conectados')
++ # Cache repetido: taxa não se altera por relógio local nem leitura repetida.
++ refresh(sample(135,132,216,364,2))
++ check(js("return document.querySelector('[data-hoje-taxa=novos]').textContent")=='1.200','Cache não infla taxa')
++ http_status=503;refresh(payload)
++ check(js("return document.querySelector('[data-hoje-taxa=novos]').textContent")=='1.200','Falha preserva taxas')
++ http_status=200
++ for width in [390,1280]:
++  call(base+'/window/rect',{'width':width,'height':1000})
++  check(js("return document.documentElement.scrollWidth<=innerWidth"),'Sem rolagem horizontal da página')
++  check(js("const d=document.querySelector('dialog');return d.scrollWidth<=d.clientWidth"),'Sem rolagem horizontal do modal')
++ (ARTIFACTS/'ao-vivo.png').write_bytes(base64.b64decode(call(base+'/screenshot')))
++ refresh(sample(0,4,2,3,1,day='2026-11-16'))
++ check(js("return document.querySelector('[data-hoje-taxa=novos]').textContent")=='Aguardando','Virada do dia reinicia média')
++ check(js("return !document.querySelector('[data-hoje-comparacao]').textContent.includes('Medição anterior')"),'Virada limpa comparação anterior')
++ js("document.querySelector('[data-hoje-fechar]').click()")
++ check(js("return !document.querySelector('dialog').open"),'Fechamento funciona')
++ js("document.querySelector('[data-hoje-abrir]').click()")
++ wait(lambda:js("return document.querySelector('[data-hoje-valor=processos_novos]').textContent")=='4')
++ check(js("return document.querySelector('[data-hoje-tempo]').textContent.includes('00:00:00')"),'Reabertura reinicia cronômetro')
++ print(f'{checks} verificações Firefox/CSP aprovadas: relógio, taxas, comparação, cache, erro, virada e layout.')
++finally:call(base,method='DELETE');server.shutdown()
+--- a/docs/atividade-ao-vivo.md
++++ b/docs/atividade-ao-vivo.md
+@@ -1,4 +1,25 @@
+ # Atividade ao vivo
++
++## Ritmo e comparação dos computadores — 15/11/2026
++
++O relógio **Tela aberta há** avança a cada segundo, inclusive com as leituras pausadas; mostra a hora atual em São Paulo. Abrir novamente o modal reinicia a sessão. A virada do dia reinicia as bases dos contadores e das taxas, preservando o tempo total da tela aberta. Corrigida a inicialização do timer antes de `showModal()`, que deixava o relógio parado.
++
++**Ritmo de captura** mostra processos novos/h, processos anteriores atualizados/h e publicações novas/h, com a projeção correspondente para 24 horas. Fórmula: variação entre as fotografias válidas ÷ segundos entre elas × 3.600; projeção = taxa × 24. São médias do período observado, não uma promessa nem previsão do total final de hoje. Só aparecem após ao menos 60 segundos entre leituras. Cache repetido e falhas não geram novas amostras nem fazem o ritmo cair artificialmente por passagem do relógio local. Pausas e aba oculta continuam dentro do intervalo entre fotografias quando a leitura retorna.
++
++Para avaliar mais PCs: deixe medir alguns minutos, clique em **Marcar comparação e medir novamente** e conecte o novo PC. A tela guarda a média anterior, a duração e a quantidade de PCs conectados no início/fim daquele período. Uma fotografia nova dos dois conjuntos inicia a segunda medição, mesmo quando os caches estão defasados. Depois de um minuto, mostra a variação percentual do ritmo de processos novos. A comparação fica só nesta abertura; não é histórico persistido nem prova de que o PC causou uma mudança. Compare períodos semelhantes: fontes, tarefas e limites globais podem limitar o ganho.
++
++**Contribuição de cada coletor** separa servidor local e PCs, inclusive os pausados/offline. Exibe novos/h, publicações/h, recepções no período e recepções/h. Recepções incluem enriquecimento DataJud/repetições, não processos únicos. PCs conectados são os ativos com heartbeat nos últimos 120 segundos; servidor local não entra nessa quantidade. Para PC que aparece durante a medição, a base começa na primeira leitura dele. Origem por executor só cobre o período após ativação da auditoria; workers antigos passam a registrar ao renovar naturalmente. Os totais globais de processos podem, portanto, diferir da soma atribuída aos executores.
++
++Os totais diários dos processos e os oito links de cadastros foram mantidos; Partes/Advogados/Varas ficam em uma seção expansível. Layout usa tokens e componentes existentes, com números tabulares e tabelas que cabem em telas pequenas. Conteúdo maior usa rolagem vertical interna do modal.
++
++### Consulta e validação
++
++`radar/lib/painel_coleta.php` usa apenas agregados de `coleta_executor_hora` (faixa indexada do dia) e cadastro pequeno de coletores. Não consulta processos/publicações individuais. Cache independente de 15 s em `coleta_rotina_config/painel_coleta_cache`, trava sem espera e limites de execução por consulta; falhas mantêm fotografia e timestamp anteriores. `hoje-status.php` acrescenta `coleta` sem mudar os campos anteriores nem o contrato dos coletores. Nada inicia ou amplia coletas.
++
++Medições: resumo existente de referência 0,39 ms; leitura do novo cache compartilhado 0,35 ms e imediata 0,15 ms. EXPLAIN da faixa diária: range/PRIMARY, 10 linhas estimadas. Não são medições de ganho de captura nem promessa de latência sob carga.
++
++Testes: `php tests/painel-coleta.php` (18 verificações em temporárias) e `php tests/painel-hoje.php` (15) aprovados. `tests/painel-hoje-browser.py` usa Firefox/WebDriver, HTML/PHP/JS/CSS reais e API simulada; iniciar geckodriver na porta 4445 (ou definir WEBDRIVER_URL) e executar com Python 3. Verifica relógio, pausa, taxas, projeção, comparação com caches defasados, nomes como texto seguro, erro, virada de dia, reabertura e largura 390/1280. Não exige login nem chama fontes reais. Não testados: ganho real ao adicionar PC2, captura sustentada por 24h, todos os navegadores e navegação autenticada do usuário no domínio público.
++
+
+ Painel em modal, aberto pelo botão **Atividade ao vivo**, ao lado de **Atualizar agora** no cabeçalho do Dashboard. A rota `/radar/hoje.php` permanece como alternativa em tela completa. O acesso foi removido do menu lateral e do bloco Hoje. Criada em 11/11/2026 para acompanhar o crescimento diário sem recarregar a página.
+
+--- /dev/null
++++ b/docs/REGISTRO-ATIVIDADE-RITMO.md
+@@ -0,0 +1,7 @@
++## 2026-11-15 · Codex/GPT-6 · Ritmo ao vivo e comparação entre coletores
++- **Pedido:** melhorar Atividade ao vivo com captura por hora/dia, tempo aberto crescente e comparação ao adicionar computadores.
++- **Causa / motivo:** startTempo era chamado antes de abrir o dialog, portanto active() era falso e o intervalo de 1 s não era criado. Contadores diários não mostravam ritmo nem ganho entre medições.
++- **Mudou:** `radar/assets/hoje.js` corrige timer e adiciona taxas/projeções por amostras válidas, comparação anterior e contribuição por executor; `radar/lib/hoje_painel.php` reorganiza o painel; `src/design/components.css` adapta tabelas sem rolagem horizontal; `radar/lib/painel_coleta.php` consulta agregados/cadastro com cache/trava independentes; `radar/hoje-status.php` acrescenta dados de coleta. Testes `tests/painel-coleta.php` e `tests/painel-hoje-browser.py`; instruções e limites em `docs/atividade-ao-vivo.md`.
++- **Testado:** 18 verificações PHP novas e 15 existentes em tabelas temporárias; Firefox/CSP com API simulada: 24 verificações de relógio, pausa, projeções, comparação (incluindo caches defasados), erro, virada, reabertura e 390/1280 px. Sintaxe PHP e lint de design aprovados. Referência SQL anterior 0,39 ms; leitura de cache novo 0,35 ms e imediata 0,15 ms; EXPLAIN range/PRIMARY, 10 linhas estimadas. NÃO testado: aumento real de produtividade com mais PCs, captura por 24h, todos os navegadores ou sessão autenticada pública do usuário.
++- **Atenção:** projeções são médias, após 60 s entre leituras; limites globais das APIs permanecem. Recepções não são processos únicos; auditoria por executor pode cobrir só parte do dia. Sem migração, alteração nos coletores/contrato, consultas às fontes, sudo ou restart. Radar sem Git local: integração registrada como patch no repositório Atlas.
++
