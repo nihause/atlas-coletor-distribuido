@@ -31,7 +31,7 @@ def atomic_private(path: Path, content: str) -> None:
     fd, name = tempfile.mkstemp(prefix=".atlas-", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as out:
-            os.fchmod(out.fileno(), 0o600)
+            if os.name != 'nt': os.fchmod(out.fileno(), 0o600)
             out.write(content)
             out.flush()
             os.fsync(out.fileno())

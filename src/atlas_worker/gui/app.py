@@ -77,7 +77,7 @@ class Window(QMainWindow):
         self.last_problem = False
         self.prefs_path = config_path().parent / "desktop.json"
         try:
-            prefs = json.loads(self.prefs_path.read_text())
+            prefs = json.loads(self.prefs_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             prefs = {}
         self.setWindowTitle("ATLAS — Coletor Distribuído")
