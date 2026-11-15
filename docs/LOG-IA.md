@@ -2,7 +2,7 @@
 - **Pedido:** concluir o aplicativo gráfico com logs e exportação sem credenciais.
 - **Causa / motivo:** reprodução local confirmou que aplicar regex de remoção de segredos sobre JSON já serializado podia remover aspas de uma mensagem como `WORKER_TOKEN=***`, tornando o JSON inválido.
 - **Mudou:** `logging_config.py`: função recursiva para sanitizar valores antes de serializar; `gui/app.py`: carregamento, visualização e exportação usam a sanitização estruturada; testes desktop e Qt cobrem atribuição de chave, aspas e listas, sem expor valores reais; documentação de validação atualizada.
-- **Testado:** suíte completa com Qt offscreen: 76 aprovados (inclui os 42 originais); reprodução da falha e regressão do JSON sanitizado confirmadas. Pacote será regenerado com esta correção antes da entrega. NÃO testado: instalação administrativa, GNOME/bandeja/autostart real, atualização entre Releases, Windows e APIs de produção.
+- **Testado:** suíte completa com Qt offscreen: 76 aprovados (inclui os 42 originais); reprodução da falha e regressão do JSON sanitizado confirmadas. Pacote regenerado com a correção (105.963.080 bytes), SHA-256 conferido e GUI extraída aberta fora do ambiente virtual por 6 s; CLI empacotada respondeu 0.2.0/contrato 1. A preparação do runner foi validada com sucesso no Actions 43720877737 (testes, .deb e artifact). NÃO testado: instalação administrativa, GNOME/bandeja/autostart real, atualização entre Releases, Windows e APIs de produção.
 - **Atenção:** correção enviada ao mesmo PR #1; sem alterações de contrato, servidor, serviços ou dados reais. Validações do .deb e do runner registradas nas entradas desta tarefa.
 
 ## 2026-11-15 · Codex / GPT-6 · Dependências gráficas no runner do GitHub
