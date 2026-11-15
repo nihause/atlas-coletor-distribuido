@@ -35,6 +35,7 @@ def wait_for(app, predicate, timeout=6000):
     end = time.monotonic() + timeout / 1000
     while not predicate() and time.monotonic() < end:
         app.processEvents(); QTest.qWait(10)
+        time.sleep(0.005)  # Libera explicitamente o GIL para a thread Python do motor no runner Qt.
     assert predicate()
 
 

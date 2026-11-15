@@ -1,3 +1,10 @@
+## 2026-11-15 · Codex / GPT-6 · Espera determinística da thread nos testes Qt
+- **Pedido:** concluir a correção da chave pública DataJud e validar a entrega.
+- **Causa / motivo:** tag 0.2.3 passou nos 100 testes; execução paralela da main falhou em dois testes Qt por prazo de espera de 6 s. O log mostra que a tarefa só recebeu execução durante teardown e então concluiu em milissegundos, indicando falta de oportunidade para a thread Python durante a espera Qt no runner.
+- **Mudou:** helper wait_for em `tests/test_gui.py` libera explicitamente o GIL com sleep de 5 ms entre eventos. Mantidas as mesmas asserções e prazo de 6 s. Nenhuma mudança no aplicativo ou no pacote assinado 0.2.3; sem reescrever tag.
+- **Testado:** suíte completa repetida localmente; nova execução da main acompanhada após push. A tag já teve testes/auditorias e empacotamento aprovados antes de publicar. NÃO testado: coleta real, instalação remota ou Windows.
+- **Atenção:** correção exclusiva da sincronização do teste, motivada por falha medida; resultado final registrado após validação pública do Release.
+
 ## 2026-11-15 · Codex / GPT-6 · Chave pública DataJud preenchida por padrão
 - **Pedido:** confirmar que a chave DataJud é pública e deixá-la preenchida automaticamente.
 - **Causa / motivo:** Settings e formulário iniciavam DATAJUD_API_KEY vazio, exigindo cópia manual da credencial compartilhada. A documentação oficial do CNJ confirma o caráter público e informa a chave vigente, conferida em 15/11/2026.
