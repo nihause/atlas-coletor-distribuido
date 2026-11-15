@@ -1,3 +1,10 @@
+## 2026-11-15 · Codex / GPT-6 · Auditoria da origem dos processos no Radar
+- **Pedido:** identificar quem importou o processo e comparar a produtividade do servidor e PCs.
+- **Causa / motivo:** o servidor não vinculava a importação inicial a cada processo; totais antigos de lotes não permitem reconstrução individual confiável.
+- **Mudou:** `integracoes/radar/origem-importacao.patch` registra as alterações PHP/SQL/testes/documentação aplicadas no Radar, que não possui Git local. Origem inicial imutável e última recepção na ficha, métricas horárias por executor e cartões administrativos. Sem alteração no Python ou versão 0.2.3; PCs existentes continuam compatíveis.
+- **Testado:** no Radar, 207 verificações PHP aprovadas, sintaxe e lint de design; Firefox/CSP em 390/1280 px com template PHP e fixtures, sem rolagem horizontal. Origem local/remota, antiatribuição por payload, rollback, legado desconhecido, repetição e DataJud novo/existente conferidos. Resumo real 0,84 ms e EXPLAIN range/PRIMARY nos agregados, sem varrer processos; detalhes em docs/origem-importacao.md dentro do patch. Gitleaks do patch e diff conferidos antes do envio. NÃO testado: coleta real disparada para testes, carga concorrente em escala ou instalação remota.
+- **Atenção:** patch para auditoria/replicação; NÃO reaplicar no servidor já atualizado. Em outra cópia compatível, executar a migração aditiva antes de ativar os gravadores novos. Sem chaves/dados reais no patch, sem sudo ou restart. Trabalhadores carregados antes da mudança passam a registrar nas execuções seguintes; dados históricos sem autor não recebem atribuição inventada. Sem novo Release, alteração de contrato, descoberta ou limites.
+
 ## 2026-11-15 · Codex / GPT-6 · Correção DataJud 0.2.3 publicada e autenticada
 - **Pedido:** deixar a chave pública oficial do DataJud preenchida no Atlas.
 - **Causa / motivo:** exigir cópia manual era desnecessário para uma chave compartilhada publicada pelo CNJ; ausência/vazio agora usa o padrão e chave própria prevalece.

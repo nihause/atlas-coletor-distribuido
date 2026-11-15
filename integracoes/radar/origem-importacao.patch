@@ -1,0 +1,395 @@
+--- /dev/null
++++ b/database/origem-importacao.sql
+@@ -0,0 +1,19 @@
++-- Proveniência incremental: sem ALTER ou varredura do acervo de processos.
++CREATE TABLE IF NOT EXISTS processo_importacao_origem (
++ processo_id INT UNSIGNED NOT NULL PRIMARY KEY,
++ primeiro_executor VARCHAR(80) NULL,
++ primeira_fonte VARCHAR(20) NULL,
++ primeira_importacao_em DATETIME(6) NULL,
++ ultimo_executor VARCHAR(80) NOT NULL,
++ ultima_fonte VARCHAR(20) NOT NULL,
++ ultima_recepcao_em DATETIME(6) NOT NULL
++) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
++CREATE TABLE IF NOT EXISTS coleta_executor_hora (
++ hora DATETIME NOT NULL,
++ executor VARCHAR(80) NOT NULL,
++ fonte VARCHAR(20) NOT NULL,
++ processos_novos BIGINT UNSIGNED NOT NULL DEFAULT 0,
++ publicacoes_novas BIGINT UNSIGNED NOT NULL DEFAULT 0,
++ recepcoes BIGINT UNSIGNED NOT NULL DEFAULT 0,
++ PRIMARY KEY(hora,executor,fonte)
++) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+--- /dev/null
++++ b/scripts/instalar-origem-importacao.php
+@@ -0,0 +1,8 @@
++<?php
++// Aditivo e idempotente: cria somente duas tabelas pequenas, sem reler o acervo.
++declare(strict_types=1);
++require __DIR__.'/../radar/lib/cli.php';
++$p=db();
++foreach(array_filter(array_map('trim',explode(';',preg_replace('/^--.*$/m','',(string)file_get_contents(__DIR__.'/../database/origem-importacao.sql'))))) as $sql)$p->exec($sql);
++$p->exec("INSERT IGNORE INTO coleta_rotina_config(chave,valor) VALUES('origem_importacao_inicio',DATE_FORMAT(NOW(),'%Y-%m-%d %H:%i:%s'))");
++echo "Origem de importação instalada, sem alterar registros antigos.\n";
+--- /dev/null
++++ b/radar/lib/importacao_origem.php
+@@ -0,0 +1,40 @@
++<?php
++declare(strict_types=1);
++/** Contexto definido exclusivamente pelo servidor autenticado; nunca vem de um item do coletor. */
++function importacao_contexto(?string $novo=null): string
++{
++    static $executor='servidor';
++    if($novo!==null){
++        if($novo!=='servidor'&&!preg_match('/^atlas:[A-Za-z0-9_.:-]{1,64}$/D',$novo))throw new InvalidArgumentException('Executor inválido.');
++        $executor=$novo;
++    }
++    return $executor;
++}
++function importacao_com_executor(string $executor,callable $trabalho): mixed
++{
++    $antes=importacao_contexto();importacao_contexto($executor);
++    try{return $trabalho();}finally{importacao_contexto($antes);}
++}
++/** Deve participar da mesma transação da gravação dos dados. Origem inicial nunca muda. */
++function importacao_registrar(PDO $p,int $processo,string $fonte,bool $novo,bool $publicacaoNova=false): void
++{
++    if(!$p->inTransaction())throw new LogicException('Origem exige a transação da importação.');
++    if($processo<=0||!in_array($fonte,['djen','datajud'],true))throw new InvalidArgumentException('Origem inválida.');
++    $executor=importacao_contexto();
++    $p->prepare('INSERT INTO processo_importacao_origem(processo_id,primeiro_executor,primeira_fonte,primeira_importacao_em,ultimo_executor,ultima_fonte,ultima_recepcao_em)
++        VALUES(?,?,?,IF(?,NOW(6),NULL),?,?,NOW(6)) ON DUPLICATE KEY UPDATE ultimo_executor=VALUES(ultimo_executor),ultima_fonte=VALUES(ultima_fonte),ultima_recepcao_em=VALUES(ultima_recepcao_em)')
++      ->execute([$processo,$novo?$executor:null,$novo?$fonte:null,(int)$novo,$executor,$fonte]);
++    $p->prepare("INSERT INTO coleta_executor_hora(hora,executor,fonte,processos_novos,publicacoes_novas,recepcoes) VALUES(DATE_FORMAT(NOW(),'%Y-%m-%d %H:00:00'),?,?,?,?,1)
++        ON DUPLICATE KEY UPDATE processos_novos=processos_novos+VALUES(processos_novos),publicacoes_novas=publicacoes_novas+VALUES(publicacoes_novas),recepcoes=recepcoes+1")
++      ->execute([$executor,$fonte,(int)$novo,(int)$publicacaoNova]);
++}
++function importacao_rotulo(?string $executor,?string $nome=null): string
++{
++    if(!$executor)return 'Origem não registrada';
++    if($executor==='servidor')return 'Coletor do servidor Radar';
++    $id=substr($executor,6);return 'Coletor '.$id.($nome&&$nome!==$id?' · '.$nome:'');
++}
++const IMPORTACAO_RESUMO_HOJE_SQL="SELECT h.executor,c.nome,SUM(h.processos_novos) processos_novos,SUM(h.publicacoes_novas) publicacoes_novas,
++ SUM(IF(h.fonte='djen',h.recepcoes,0)) recepcoes_djen,SUM(IF(h.fonte='datajud',h.recepcoes,0)) recepcoes_datajud
++ FROM coleta_executor_hora h LEFT JOIN coletores c ON h.executor=CONCAT('atlas:',c.id)
++ WHERE h.hora>=CURDATE() GROUP BY h.executor,c.nome ORDER BY processos_novos DESC,h.executor";
+--- a/radar/lib/djen.php
++++ b/radar/lib/djen.php
+@@ -1,6 +1,7 @@
+ <?php
+ declare(strict_types=1);
+ require_once __DIR__.'/coleta_metricas.php';
++require_once __DIR__.'/importacao_origem.php';
+ require_once __DIR__ . '/enriquecimento.php';
+ require_once __DIR__ . '/jurimetria.php';
+ 
+@@ -307,6 +308,7 @@
+     }
+     processo_atividade_concluir($pdo,$atividadeAntesDados,[$processoId],'dados');
+     processo_atividade_concluir($pdo,$atividadeAntesPublicacao,[$processoId],'publicacoes',[$id]);
++    importacao_registrar($pdo,$processoId,'djen',$processoNovo,$comunicacaoNova);
+     return [$comunicacaoNova, $processoNovo];
+ }
+ 
+--- a/radar/lib/coleta.php
++++ b/radar/lib/coleta.php
+@@ -39,8 +39,9 @@
+         return;
+     }
+     $numerosAtividade=array_map('strval',array_keys($grupos));
+-    $stAtividade=$pdo->prepare('SELECT id FROM processos WHERE numero_cnj IN ('.implode(',',array_fill(0,count($numerosAtividade),'?')).')');$stAtividade->execute($numerosAtividade);
+-    $atividadeAntes=processo_atividade_capturar($pdo,$stAtividade->fetchAll(PDO::FETCH_COLUMN),'dados');
++    $stAtividade=$pdo->prepare('SELECT id FROM processos WHERE numero_cnj IN ('.implode(',',array_fill(0,count($numerosAtividade),'?')).') FOR UPDATE');$stAtividade->execute($numerosAtividade);
++    $idsAntes=array_fill_keys($stAtividade->fetchAll(PDO::FETCH_COLUMN),true);
++    $atividadeAntes=processo_atividade_capturar($pdo,array_keys($idsAntes),'dados');
+     foreach ($grupos as &$documentos) $documentos = datajud_ordenar_documentos($documentos);
+     unset($documentos);
+     $n = count($grupos);
+@@ -84,6 +85,7 @@
+     $pdo->prepare($upDj)->execute($args);
+     jurimetria_atualizar_lote($pdo, array_values($ids));
+     processo_atividade_concluir($pdo,$atividadeAntes,array_values($ids),'dados');
++    foreach($ids as $pid)importacao_registrar($pdo,(int)$pid,'datajud',!isset($idsAntes[$pid]));
+ }
+ 
+ /** Repete em deadlock/lock timeout (outros workers gravando ao mesmo tempo). */
+--- a/radar/lib/ingestao.php
++++ b/radar/lib/ingestao.php
+@@ -6,6 +6,7 @@
+  * Regras: idempotente por (coletor, chave do lote), só ENRIQUECE processos que já existem (não cria processo),
+  * rejeita registro sigiloso, e reaproveita a mesma gravação do coletor local (permanente_gravar_documentos + projeção).
+  */
++require_once __DIR__.'/importacao_origem.php';
+ const INGESTAO_MAX_ITENS = 2000;
+ 
+ /** Converte o registro normalizado do Atlas (ProcessRecord) no formato de documento do DataJud que o Radar já sabe gravar. */
+@@ -59,7 +60,7 @@
+             permanente_projetar($p, $ids[$cnj], true);
+         });
+     };
+-    if ($conhecidos) $gravar($p, $tribunal, $conhecidos, $ids);
++    if ($conhecidos) importacao_com_executor('atlas:'.$coletor,fn()=>$gravar($p, $tribunal, $conhecidos, $ids));
+     $itens = count($registros); $aceitos = count($conhecidos);
+     // O registro do lote vem depois da gravação: se cair no meio, o reenvio regrava (a gravação é idempotente) em vez de fingir que já foi.
+     $p->prepare('INSERT IGNORE INTO ingestao_lotes (chave, coletor_id, tipo, tribunal, itens, aceitos, desconhecidos, rejeitados) VALUES (?,?,?,?,?,?,?,?)')->execute([$chave, $coletor, 'datajud', $tribunal, $itens, $aceitos, $desc, $rej]);
+--- a/radar/lib/coletores.php
++++ b/radar/lib/coletores.php
+@@ -378,7 +378,7 @@
+         if (!is_array($it) || !array_key_exists($q, $filtros) || !coletor_item_aceito($filtros[$q], $it)) { $rej++; continue; }
+         $data = (string) ($it['data_disponibilizacao'] ?? '');   // só o período da tarefa
+         if ($data < $t['params']['de'] || $data > $t['params']['ate']) { $rej++; continue; }
+-        try { [, $procNovo] = (coletor_ganchos()['djen'] ?? 'djen_salvar')($p, $adv, $emp, $it); } catch (UnexpectedValueException $e) { $rej++; continue; }
++        try { [, $procNovo] = importacao_com_executor('atlas:'.$t['coletor_id'],fn()=>(coletor_ganchos()['djen'] ?? 'djen_salvar')($p, $adv, $emp, $it)); } catch (UnexpectedValueException $e) { $rej++; continue; }
+         $aceitos++; $novos += (int) $procNovo;
+         if ($fav['tipo'] === 'comarca') { $c = preg_replace('/\D/', '', (string) ($it['numero_processo'] ?? '')); if (strlen($c) === 20) $cnjs[$c] = true; }
+     }
+--- a/radar/admin/coletores.php
++++ b/radar/admin/coletores.php
+@@ -102,6 +102,9 @@
+     $falha = false;
+ } catch (PDOException $e) { $col = []; $falha = true; }
+ 
++// Resumo horário pequeno; não agrupa nem percorre o acervo de processos.
++$capturaHoje=$p->query(IMPORTACAO_RESUMO_HOJE_SQL)->fetchAll();
++$capturaInicio=fonte_cfg($p,'origem_importacao_inicio');
+ $on = fn(array $c) => $c['ultimo_sinal_em'] !== null && $c['sem_sinal_s'] !== null && (int) $c['sem_sinal_s'] <= 120;
+ $dt = fn(?string $v) => $v ? date('d/m/Y H:i', strtotime($v)) : '—';
+ $dur = function (?string $desde): string {
+@@ -137,6 +140,26 @@
+     <p>Rode <code>php scripts/instalar-coletores-v2.php</code> no servidor.</p>
+   </div>
+ <?php endif; ?>
++
++  <section class="ds-dashboard__section" aria-labelledby="captura-executor-titulo">
++    <h2 class="ds-h3" id="captura-executor-titulo">Coleta por executor · hoje</h2>
++    <p class="ds-text-sm ds-text-muted">Registros contabilizados desde <?= e($dt($capturaInicio)) ?>. Processos novos e publicações novas são contados separadamente das recepções de dados já existentes. Coletas iniciadas antes da ativação passam a ser contabilizadas nas próximas execuções.</p>
++    <div class="coletores-lista">
++<?php foreach($capturaHoje as $captura): ?>
++      <article class="ds-card coletores-cartao">
++        <h3 class="ds-h3"><?= e(importacao_rotulo($captura['executor'],$captura['nome'])) ?></h3>
++        <dl class="coletores-dados">
++          <div><dt>Processos novos importados</dt><dd><?= $n($captura['processos_novos']) ?></dd></div>
++          <div><dt>Publicações novas gravadas</dt><dd><?= $n($captura['publicacoes_novas']) ?></dd></div>
++          <div><dt>Recepções DJEN</dt><dd><?= $n($captura['recepcoes_djen']) ?></dd></div>
++          <div><dt>Recepções de processos DataJud</dt><dd><?= $n($captura['recepcoes_datajud']) ?></dd></div>
++        </dl>
++      </article>
++<?php endforeach;if(!$capturaHoje): ?>
++      <p class="ds-text-muted">Aguardando as primeiras importações com identificação do executor. Os lotes anteriores continuam nos indicadores dos coletores abaixo.</p>
++<?php endif; ?>
++    </div>
++  </section>
+ 
+   <section class="coletores-lista" aria-label="Computadores coletores">
+ <?php foreach ($col as $indice => $c):
+--- a/radar/advogados/processo.php
++++ b/radar/advogados/processo.php
+@@ -6,6 +6,7 @@
+ require_once __DIR__.'/../lib/coleta_permanente_ui.php';
+ require_once __DIR__.'/../lib/cia_analise_ui.php';
+ require_once __DIR__.'/../lib/sinais.php';
++require_once __DIR__.'/../lib/importacao_origem.php';
+ require_login();
+ 
+ $id = (int) ($_GET['id'] ?? 0);
+@@ -13,6 +14,10 @@
+ $st = db()->prepare('SELECT * FROM processos WHERE id = ?');
+ $st->execute([$id]);
+ $p = $st->fetch() ?: redirect('/advogados/');
++$stOrigem=db()->prepare("SELECT o.*,a.nome primeiro_nome,b.nome ultimo_nome FROM processo_importacao_origem o
++    LEFT JOIN coletores a ON o.primeiro_executor=CONCAT('atlas:',a.id)
++    LEFT JOIN coletores b ON o.ultimo_executor=CONCAT('atlas:',b.id) WHERE o.processo_id=?");
++$stOrigem->execute([$id]);$origemImportacao=$stOrigem->fetch()?:[];
+ $paginaPublicacoes = max(1, min(1000000, (int) ($_GET['publicacoes_p'] ?? 1)));
+ $st = db()->prepare('SELECT COUNT(*) FROM comunicacoes WHERE processo_id=?');$st->execute([$id]);$totalPublicacoes=(int)$st->fetchColumn();
+ $paginasPublicacoes=max(1,(int)ceil($totalPublicacoes/50));$paginaPublicacoes=min($paginaPublicacoes,$paginasPublicacoes);
+@@ -68,6 +73,8 @@
+       <p><?= e($p['tribunal']) ?> · <?= e($p['classe'] ?: 'Classe não informada') ?></p>
+       <p class="ds-text-sm ds-text-muted"><?= e($p['orgao'] ?: 'Vara / órgão não informado') ?></p>
+       <dl class="processo-datas">
++        <div><dt>Importado originalmente por</dt><dd><?= e(importacao_rotulo($origemImportacao['primeiro_executor']??null,$origemImportacao['primeiro_nome']??null)) ?><?php if(!empty($origemImportacao['primeira_importacao_em'])): ?><span class="ds-text-sm ds-text-muted"> · <?= e(strtoupper($origemImportacao['primeira_fonte'])) ?> · <?= e(date('d/m/Y H:i:s',strtotime($origemImportacao['primeira_importacao_em']))) ?></span><?php endif; ?></dd></div>
++        <div><dt>Última recepção por</dt><dd><?= e(isset($origemImportacao['ultimo_executor'])?importacao_rotulo($origemImportacao['ultimo_executor'],$origemImportacao['ultimo_nome']??null):'Sem recepção registrada desde a ativação') ?><?php if(!empty($origemImportacao['ultima_recepcao_em'])): ?><span class="ds-text-sm ds-text-muted"> · <?= e(strtoupper($origemImportacao['ultima_fonte'])) ?> · <?= e(date('d/m/Y H:i:s',strtotime($origemImportacao['ultima_recepcao_em']))) ?></span><?php endif; ?></dd></div>
+         <div><dt>Cadastrado no Radar</dt><dd><?= e(date('d/m/Y H:i:s',strtotime($p['criado_em']))) ?></dd></div>
+         <div><dt>Atualizado no Radar</dt><dd><?= $p['atualizado_em']?e(date('d/m/Y H:i:s',strtotime($p['atualizado_em']))):'Sem alteração registrada' ?></dd></div>
+         <div><dt>Distribuição</dt><dd><?= e(format_date($dadosJulgamento['data_ajuizamento'] ?? null) ?: 'Não informada') ?></dd></div>
+--- /dev/null
++++ b/tests/importacao-origem.php
+@@ -0,0 +1,34 @@
++<?php
++// Apenas tabelas temporárias; nenhuma coleta, dado real ou serviço é alterado.
++declare(strict_types=1);
++require __DIR__.'/../radar/lib/cli.php';require __DIR__.'/../radar/lib/importacao_origem.php';
++$p=db();$n=0;$ok=function(bool $v,string $m)use(&$n){++$n;if(!$v)throw new RuntimeException('FALHOU: '.$m);};
++foreach(array_filter(array_map('trim',explode(';',preg_replace('/^--.*$/m','',(string)file_get_contents(__DIR__.'/../database/origem-importacao.sql'))))) as $sql)$p->exec(str_replace('CREATE TABLE IF NOT EXISTS','CREATE TEMPORARY TABLE',$sql));
++$p->exec('CREATE TEMPORARY TABLE coletores(id VARCHAR(64) PRIMARY KEY,nome VARCHAR(120))');$p->exec("INSERT INTO coletores VALUES('pc1','PC do escritório')");
++$t0=hrtime(true);$p->beginTransaction();
++importacao_com_executor('atlas:pc1',fn()=>importacao_registrar($p,1,'djen',true,true));
++importacao_registrar($p,1,'datajud',false);
++importacao_com_executor('atlas:pc2',fn()=>importacao_registrar($p,2,'djen',false,true));
++$p->commit();$ms=(hrtime(true)-$t0)/1e6;
++$orig=$p->query('SELECT * FROM processo_importacao_origem WHERE processo_id=1')->fetch();
++$ok($orig['primeiro_executor']==='atlas:pc1'&&$orig['primeira_fonte']==='djen','Autor original permanece após recepção local');
++$ok($orig['ultimo_executor']==='servidor'&&$orig['ultima_fonte']==='datajud','Último executor é independente da primeira importação');
++$orig=$p->query('SELECT * FROM processo_importacao_origem WHERE processo_id=2')->fetch();
++$ok($orig['primeiro_executor']===null&&$orig['primeira_importacao_em']===null,'Processo antigo não recebe autor inventado');
++$ok($orig['ultimo_executor']==='atlas:pc2','Processo antigo pode ter recepção recente identificada');
++try{importacao_com_executor('atlas:pc1',function(){throw new RuntimeException('teste');});}catch(RuntimeException $e){}
++$ok(importacao_contexto()==='servidor','Exceção restaura contexto para não atribuir próximo trabalho ao PC errado');
++$antes=$p->query("SELECT SUM(recepcoes) FROM coleta_executor_hora")->fetchColumn();
++$p->beginTransaction();importacao_com_executor('atlas:pc3',fn()=>importacao_registrar($p,3,'djen',true,true));$p->rollBack();
++$ok(!$p->query('SELECT 1 FROM processo_importacao_origem WHERE processo_id=3')->fetchColumn(),'Rollback remove origem parcial');
++$ok($p->query('SELECT SUM(recepcoes) FROM coleta_executor_hora')->fetchColumn()===$antes,'Rollback também desfaz contadores');
++try{importacao_registrar($p,3,'djen',true);throw new Exception('Deveria recusar');}catch(LogicException $e){$ok(true,'Gravação fora de transação é recusada');}
++$t0=hrtime(true);$res=$p->query(IMPORTACAO_RESUMO_HOJE_SQL)->fetchAll();$leitura=(hrtime(true)-$t0)/1e6;
++$por=array_column($res,null,'executor');$ok(count($res)===3,'Resumo separa servidor e dois PCs');
++$ok($por['atlas:pc1']['nome']==='PC do escritório'&&(int)$por['atlas:pc1']['processos_novos']===1&&(int)$por['atlas:pc1']['publicacoes_novas']===1,'Nome e produtividade por executor corretos');
++$ok((int)$por['servidor']['recepcoes_datajud']===1&&(int)$por['servidor']['processos_novos']===0,'Enriquecer processo não é importar processo novo');
++$ok(importacao_rotulo(null)==='Origem não registrada','Ausência histórica explicitada');
++$ok(importacao_rotulo('servidor')==='Coletor do servidor Radar','Rótulo local');
++$ok(importacao_rotulo('atlas:pc1','PC do escritório')==='Coletor pc1 · PC do escritório','Rótulo do PC');
++$ok(!str_contains(IMPORTACAO_RESUMO_HOJE_SQL,'FROM processos'),'Resumo usa agregados sem varrer processos');
++echo "$n verificações de origem aprovadas. Escrita de 3 recepções: ".number_format($ms,2)." ms; resumo: ".number_format($leitura,2)." ms.\n";
+--- a/tests/enriquecimento-integracao.php
++++ b/tests/enriquecimento-integracao.php
+@@ -4,7 +4,9 @@
+ require __DIR__.'/../radar/lib/cli.php';
+ require __DIR__.'/../radar/lib/djen.php';
+ require __DIR__.'/../radar/lib/processo_contatos.php';
+-$p=db();$tabelas=['processo_atividade_dia','processo_datajud','varas','processo_jurimetria_assuntos','processo_jurimetria','advogados','processos','comunicacoes','advogado_processo','empresa_processo','processo_partes','processo_advogados_polos','processo_advogados','comunicacao_dados','datajud_documentos'];
++$p=db();
++foreach(['processo_importacao_origem','coleta_executor_hora'] as $t){$p->exec("CREATE TEMPORARY TABLE copia_origem_$t LIKE $t");$p->exec("CREATE TEMPORARY TABLE $t LIKE copia_origem_$t");$p->exec("DROP TEMPORARY TABLE copia_origem_$t");}
++$tabelas=['processo_coleta_controle','processo_atividade_dia','processo_datajud','varas','processo_jurimetria_assuntos','processo_jurimetria','advogados','processos','comunicacoes','advogado_processo','empresa_processo','processo_partes','processo_advogados_polos','processo_advogados','comunicacao_dados','datajud_documentos'];
+ foreach($tabelas as $t){$p->exec("CREATE TEMPORARY TABLE teste_original_$t LIKE $t");$p->exec("CREATE TEMPORARY TABLE $t LIKE teste_original_$t");$p->exec("DROP TEMPORARY TABLE teste_original_$t");}
+ $n=0;$ok=function(bool $v,string $caso)use(&$n){++$n;if(!$v)throw new RuntimeException($caso);};
+ try{
+@@ -43,5 +45,26 @@
+  $ok(!$p->inTransaction(),'Transação concluída sem ficar aberta');
+  try{enriquecimento_transacao($p,function()use($p):void{$p->exec("UPDATE processos SET classe='NÃO PERSISTIR'");throw new RuntimeException('Falha de teste');});}catch(RuntimeException $e){}
+  $ok($p->query('SELECT classe FROM processos')->fetchColumn()==='Classe de teste','Falha desfaz alterações parciais');
++ $origem=$p->query('SELECT * FROM processo_importacao_origem WHERE processo_id='.(int)$pid)->fetch();
++ $ok($origem['primeiro_executor']==='servidor'&&$origem['ultima_fonte']==='datajud','Criação local e última recepção DataJud registradas');
++ require_once __DIR__.'/../radar/lib/coletores.php';
++ $remoto=$item;$remoto['id']=900000000010;$remoto['numero_processo']='00000990020268160130';$remoto['coletor_id']='pc-falso-no-payload';
++ $tarefa=['coletor_id'=>'pc-01','params'=>['favorito'=>['tipo'=>'parte','ref_id'=>0],'consultas'=>[['filtro'=>null]],'de'=>'2026-11-01','ate'=>'2026-11-10']];
++ enriquecimento_transacao($p,fn()=>coletor_gravar_djen($p,$tarefa,[['q'=>0,'item'=>$remoto]]));
++ $pidRemoto=(int)$p->query("SELECT id FROM processos WHERE numero_cnj='00000990020268160130'")->fetchColumn();
++ $origem=$p->query('SELECT * FROM processo_importacao_origem WHERE processo_id='.$pidRemoto)->fetch();
++ $ok($origem['primeiro_executor']==='atlas:pc-01','Coletor é o da tarefa validada, não o nome enviado no item');
++ $tarefa['coletor_id']='pc-02';
++ enriquecimento_transacao($p,fn()=>coletor_gravar_djen($p,$tarefa,[['q'=>0,'item'=>$remoto]]));
++ $origem=$p->query('SELECT * FROM processo_importacao_origem WHERE processo_id='.$pidRemoto)->fetch();
++ $ok($origem['primeiro_executor']==='atlas:pc-01'&&$origem['ultimo_executor']==='atlas:pc-02','Nova recepção não rouba o autor da importação inicial');
++ $st=$p->query("SELECT processos_novos,publicacoes_novas,recepcoes FROM coleta_executor_hora WHERE executor='atlas:pc-02'")->fetch();
++ $ok((int)$st['processos_novos']===0&&(int)$st['publicacoes_novas']===0&&(int)$st['recepcoes']===1,'Publicação repetida não conta como nova, mas registra recepção');
++ $fonteNova=$fonte;$fonteNova['numeroProcesso']='00000880020268160130';
++ importacao_com_executor('atlas:pc-03',fn()=>datajud_gravar_grupos($p,'TJPR',[$fonteNova['numeroProcesso']=>[$fonteNova]]));
++ $pidDj=(int)$p->query("SELECT id FROM processos WHERE numero_cnj='00000880020268160130'")->fetchColumn();
++ $origem=$p->query('SELECT * FROM processo_importacao_origem WHERE processo_id='.$pidDj)->fetch();
++ $ok($origem['primeiro_executor']==='atlas:pc-03'&&$origem['primeira_fonte']==='datajud','Cadastro novo pelo DataJud também registra executor e fonte');
++ $ok(importacao_contexto()==='servidor','Contexto remoto é restaurado antes do próximo trabalho local');
+  echo "$n verificações de integração de enriquecimento aprovadas, apenas em tabelas temporárias.\n";
+ }finally{foreach(array_reverse($tabelas)as$t)$p->exec("DROP TEMPORARY TABLE $t");}
+--- a/tests/coleta-permanente.php
++++ b/tests/coleta-permanente.php
+@@ -4,6 +4,8 @@
+ require __DIR__.'/../radar/lib/coleta_permanente.php';
+ $n=0;$ok=function(bool $v,string $m)use(&$n){++$n;if(!$v)throw new RuntimeException($m);};
+ $p=db();
++foreach(['processo_importacao_origem','coleta_executor_hora'] as $t){$p->exec("CREATE TEMPORARY TABLE copia_origem_$t LIKE $t");$p->exec("CREATE TEMPORARY TABLE $t LIKE copia_origem_$t");$p->exec("DROP TEMPORARY TABLE copia_origem_$t");}
++
+ foreach(['processos','processo_datajud','processo_analise','datajud_documentos','processo_coleta_controle','processo_instancias','processo_instancias_historico','processo_partes','comunicacoes','comunicacao_dados','processo_advogados','processo_advogados_polos','processo_jurimetria','processo_acompanhamento','processo_jurimetria_assuntos','varas','processo_favoritos','advogados','advogado_processo','empresa_processo','processo_atividade_dia','coleta_rotina_config','coleta_rotina_jobs'] as $t){$p->exec("CREATE TEMPORARY TABLE copia_teste_$t LIKE $t");$p->exec("CREATE TEMPORARY TABLE $t LIKE copia_teste_$t");$p->exec("DROP TEMPORARY TABLE copia_teste_$t");}
+ $cnj='00000010020268160130';
+ $mov=fn(int $c,string $dia)=>['codigo'=>$c,'nome'=>'Movimento '.$c,'dataHora'=>$dia.'T12:00:00.000Z'];
+--- a/tests/processo-atividade.php
++++ b/tests/processo-atividade.php
+@@ -3,7 +3,9 @@
+ require __DIR__.'/../radar/lib/cli.php';
+ require __DIR__.'/../radar/lib/coleta.php';
+ require __DIR__.'/../radar/lib/processos_filtros.php';
+-$p=db();$n=0;$ok=function(bool $v,string $m)use(&$n){++$n;if(!$v)throw new RuntimeException($m);};
++$p=db();
++foreach(['processo_importacao_origem','coleta_executor_hora'] as $t){$p->exec("CREATE TEMPORARY TABLE copia_origem_$t LIKE $t");$p->exec("CREATE TEMPORARY TABLE $t LIKE copia_origem_$t");$p->exec("DROP TEMPORARY TABLE copia_origem_$t");}
++$n=0;$ok=function(bool $v,string $m)use(&$n){++$n;if(!$v)throw new RuntimeException($m);};
+ foreach(['processos','processo_datajud','datajud_documentos','processo_atividade_dia','processo_jurimetria','processo_jurimetria_assuntos','varas','advogados','advogado_processo','empresa_processo','processo_partes','processo_advogados','processo_advogados_polos','comunicacao_dados'] as $t){$p->exec("CREATE TEMPORARY TABLE copia_at_$t LIKE $t");$p->exec("CREATE TEMPORARY TABLE $t LIKE copia_at_$t");$p->exec("DROP TEMPORARY TABLE copia_at_$t");}
+ $intervalo=processo_dia_intervalo(new DateTimeImmutable('2026-11-08T01:30:00Z'));
+ $ok($intervalo[2]==='2026-11-07'&&$intervalo[1]==='2026-11-08 00:00:00','Dia respeita São Paulo, não meia-noite UTC');
+@@ -30,9 +32,9 @@
+ enriquecimento_gravar_lote($p,[['id'=>999,'processo_id'=>$id,'dados'=>['destinatarios'=>[['nome'=>'AUTOR','polo'=>'A']],'destinatarioadvogados'=>[['advogado'=>['nome'=>'ADVOGADO PR','numero_oab'=>'1.234','uf_oab'=>'PR']]]]]]);
+ $links=$p->query('SELECT advogado_id FROM advogado_processo')->fetchAll(PDO::FETCH_COLUMN);
+ $ok(array_map('intval',$links)===[1],'Vínculo usa OAB normalizada e UF, sem homônimos ou UF errada');
+-[$f,$where,$args,$e,$ativo]=processos_filtros_globais(['atividade'=>'novos_hoje'],[],[],[]);$s=$p->prepare('SELECT id FROM processos p WHERE '.$where);$s->execute($args);$ok($ativo&&!$e&&array_map('intval',$s->fetchAll(PDO::FETCH_COLUMN))===[$idNovo],'Cartão novos filtra os processos criados hoje');
++[$f,$where,$args,$e,$ativo]=processos_filtros_globais(['atividade'=>'novos_hoje'],$p);$s=$p->prepare('SELECT id FROM processos p WHERE '.$where);$s->execute($args);$ok($ativo&&!$e&&array_map('intval',$s->fetchAll(PDO::FETCH_COLUMN))===[$idNovo],'Cartão novos filtra os processos criados hoje');
+ // O marco real da implantação pode ser posterior ao começo deste teste; usa um marco anterior só na conexão.
+ $p->exec('CREATE TEMPORARY TABLE copia_at_config LIKE coleta_rotina_config');$p->exec('CREATE TEMPORARY TABLE coleta_rotina_config LIKE copia_at_config');$p->exec('DROP TEMPORARY TABLE copia_at_config');
+ $p->exec("INSERT INTO coleta_rotina_config(chave,valor) VALUES('atividade_inicio','2000-01-01 00:00:00')");
+-[$f,$where,$args,$e,$ativo]=processos_filtros_globais(['atividade'=>'atualizados_hoje'],[],[],[]);$s=$p->prepare('SELECT id FROM processos p WHERE '.$where);$s->execute($args);$ok($ativo&&!$e&&array_map('intval',$s->fetchAll(PDO::FETCH_COLUMN))===[$id],'Cartão atualizados reconcilia sem incluir novos');
++[$f,$where,$args,$e,$ativo]=processos_filtros_globais(['atividade'=>'atualizados_hoje'],$p);$s=$p->prepare('SELECT id FROM processos p WHERE '.$where);$s->execute($args);$ok($ativo&&!$e&&array_map('intval',$s->fetchAll(PDO::FETCH_COLUMN))===[$id],'Cartão atualizados reconcilia sem incluir novos');
+ echo "$n verificações de datas, atividade e vínculos passaram em tabelas temporárias.\n";
+--- a/tests/coletores.php
++++ b/tests/coletores.php
+@@ -3,7 +3,9 @@
+ // conclusão só com tudo persistido, expiração, falhas, DataJud em lote e limite global. Tabelas temporárias; gravação real substituída por gancho.
+ declare(strict_types=1);
+ require __DIR__.'/../radar/lib/cli.php';require __DIR__.'/../radar/lib/coletores.php';
+-$p=db();$n=0;$ok=function($v,$m)use(&$n){++$n;if(!$v)throw new RuntimeException('FALHOU: '.$m);};
++$p=db();
++foreach(['processo_importacao_origem','coleta_executor_hora'] as $t){$p->exec("CREATE TEMPORARY TABLE copia_origem_$t LIKE $t");$p->exec("CREATE TEMPORARY TABLE $t LIKE copia_origem_$t");$p->exec("DROP TEMPORARY TABLE copia_origem_$t");}
++$n=0;$ok=function($v,$m)use(&$n){++$n;if(!$v)throw new RuntimeException('FALHOU: '.$m);};
+ $lan=function(callable $f){try{$f();return null;}catch(Throwable $e){return $e;}};
+ foreach(['fila_monitoramento','coleta_favoritos','coleta_favoritos_log','coleta_rotina_config','coleta_escopo_extra','ingestao_lotes','coletores','coletor_tarefas','processo_coleta_controle','processos','fila_incidentes','djen_orgaos','varas','advogados','coleta_metricas_hora','ingestao_lotes'] as $t){if($p->query("SELECT 1 FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='$t' AND table_type='BASE TABLE'")->fetchColumn()){@$p->exec("CREATE TEMPORARY TABLE copia_co_$t LIKE $t");$p->exec("CREATE TEMPORARY TABLE IF NOT EXISTS $t LIKE copia_co_$t");$p->exec("DROP TEMPORARY TABLE copia_co_$t");}}
+ foreach(array_filter(array_map('trim',explode(';',preg_replace('/^--.*$/m','',file_get_contents(__DIR__.'/../database/vigia-progresso.sql'))))) as $sql)$p->exec(preg_replace('/^CREATE TABLE IF NOT EXISTS/','CREATE TEMPORARY TABLE IF NOT EXISTS',$sql));
+--- a/tests/ingestao.php
++++ b/tests/ingestao.php
+@@ -2,7 +2,9 @@
+ // Testes da ingestão por coletores do Atlas: idempotência, só processos existentes, sigilo, contadores. Tabelas temporárias; gravação injetada.
+ declare(strict_types=1);
+ require __DIR__.'/../radar/lib/cli.php';require __DIR__.'/../radar/lib/ingestao.php';require __DIR__.'/../radar/lib/api_permissoes.php';
+-$p=db();$n=0;$ok=function($v,$m)use(&$n){++$n;if(!$v)throw new RuntimeException('FALHOU: '.$m);};
++$p=db();
++foreach(['processo_importacao_origem','coleta_executor_hora'] as $t){$p->exec("CREATE TEMPORARY TABLE copia_origem_$t LIKE $t");$p->exec("CREATE TEMPORARY TABLE $t LIKE copia_origem_$t");$p->exec("DROP TEMPORARY TABLE copia_origem_$t");}
++$n=0;$ok=function($v,$m)use(&$n){++$n;if(!$v)throw new RuntimeException('FALHOU: '.$m);};
+ $p->exec('CREATE TEMPORARY TABLE copia_ig LIKE processos');$p->exec('CREATE TEMPORARY TABLE processos LIKE copia_ig');$p->exec('DROP TEMPORARY TABLE copia_ig');
+ foreach(array_filter(array_map('trim',explode(';',preg_replace('/^--.*$/m','',file_get_contents(__DIR__.'/../database/ingestao-coletores.sql'))))) as $sql)$p->exec(preg_replace('/^CREATE TABLE IF NOT EXISTS/','CREATE TEMPORARY TABLE',$sql));
+ $cnj=fn(int $i)=>str_pad((string)$i,20,'0',STR_PAD_LEFT);
+--- /dev/null
++++ b/docs/origem-importacao.md
+@@ -0,0 +1,38 @@
++# Quem importou o processo e produtividade por executor
++
++## Onde ver
++
++Na ficha do processo, em Visão geral, aparecem **Importado originalmente por** e **Última recepção por**, com fonte (DJEN/DataJud) e data/hora. O primeiro identifica quem cadastrou aquele processo no Radar. O último mostra quem recebeu dados mais recentemente, mesmo que fossem dados já existentes. Atualização por outro PC não troca o importador original.
++
++Em Administração → Coletores (`/radar/admin/coletores.php`), a seção **Coleta por executor · hoje** compara o coletor do servidor Radar e os coletores Atlas pelo ID e nome atual cadastrado. Mostra processos novos, publicações novas, recepções DJEN e recepções de processos DataJud. Recepções são ocorrências de gravação, não processos únicos. O mesmo processo pode receber vários lotes/publicações; não somar recepções como quantidade de processos novos. O DataJud normalmente enriquece processos já conhecidos e pode ter muitas recepções com zero processos novos.
++
++A contagem de hoje começa na ativação do registro, exibida na tela. Os números antigos dos lotes continuam nos cartões existentes. Não foi feita reconstrução histórica: processos anteriores mostram **Origem não registrada**, mesmo quando uma recepção posterior já identifica o PC. Não atribuir retrospectivamente um processo antigo a quem apenas o atualizou.
++
++Os PCs não precisam atualizar o Atlas: a API já autentica o coletor e informa a tarefa. O servidor usa esse identificador validado, nunca um nome enviado dentro do item. ID `servidor` identifica o trabalho local; `atlas:ID` identifica o PC, evitando colisão com um PC chamado servidor. O rótulo amigável é lido do cadastro de coletores; o ID histórico permanece mesmo se o nome mudar.
++
++## Gravação e consistência
++
++- `processo_importacao_origem`: uma linha por processo recebido a partir da ativação, chave primária processo_id; origem inicial imutável e última recepção separadas.
++- `coleta_executor_hora`: agregados por hora/executor/fonte. O painel filtra hora >= CURDATE() pela chave primária e não consulta milhões de processos.
++- `djen_salvar`: registra apenas depois da gravação normal, usando os sinais reais de processo novo e comunicação nova do upsert. Publicações repetidas não entram como novas.
++- `datajud_gravar_grupos`: registra os IDs processados; consulta inicial limitada aos CNJs do lote usa FOR UPDATE para distinguir novos/existentes na mesma transação. Isolamento REPEATABLE-READ confirmado no servidor. Não mudar esse isolamento sem rever a garantia de inserção concorrente.
++- `coletor_gravar_djen` e `ingestao_datajud`: envolvem a gravação no contexto do PC autenticado. Um finally restaura o contexto local mesmo em exceções, evitando atribuir um trabalho seguinte ao PC anterior.
++- Dados, origem e contadores participam da mesma transação. Falhas fazem rollback também da origem/contadores; reenvio do lote já confirmado continua bloqueado pela idempotência existente.
++
++Não há log ilimitado por publicação nesta implementação: são a origem inicial, a última recepção e os agregados horários. Não houve alteração nos vínculos Parte/Advogado/Vara, prioridades, contrato 1, limites das APIs, descoberta ou autenticação.
++
++## Implantação e operação
++
++Executar `php scripts/instalar-origem-importacao.php` antes de disponibilizar o código. É aditivo/idempotente: cria duas tabelas novas e marca a ativação em coleta_rotina_config, sem ALTER em processos, sem backfill e sem varrer o acervo.
++
++O servidor atual já recebeu a instalação e o PHP novo. Trabalhadores CLI que carregaram o código anterior passam a registrar ao iniciar a próxima execução natural. Os de favoritos têm ciclo de 25 minutos; não foram interrompidos e não foi iniciada uma segunda cópia de coletor. O primeiro dia pode, portanto, ter contagem parcial. Requisições novas da API utilizam o PHP atualizado.
++
++Não remover as tabelas enquanto o código que grava nelas estiver ativo. Não suprimir falhas de gravação de origem silenciosamente: a transação deve preservar a coerência dos dados e dos contadores.
++
++## Validação em 15/11/2026
++
++207 verificações PHP aprovadas: origem 15, enriquecimento integrado 23, coleta permanente 36, ingestão 15, servidor coletores 47, administração 41, progresso 19 e atividade 11. Fixtures de gravação isolam também as duas tabelas novas, impedindo contaminação do histórico real. O teste antigo de atividade chamava uma assinatura já removida do filtro global; ajustado para a assinatura atual com PDO, sem mudança no filtro de produção.
++
++Verificado: criação local/PC, atualização sem trocar origem, payload tentando informar PC diferente, DataJud novo/existente, origem antiga desconhecida, rollback de dados/contadores e restauração de contexto após exceção. Escrita isolada de três recepções: 2,04 ms; resumo temporário: 0,54 ms. Resumo real: 0,84 ms, dois executores; EXPLAIN: range/PRIMARY nos agregados, três linhas estimadas; join com cadastro minúsculo de coletores, uma linha estimada. Nenhuma consulta ao acervo de processos no resumo.
++
++Sintaxe e lint de design aprovados. Firefox com HTML gerado pelo template PHP, CSP real e dados fictícios em 390 e 1280 px: cartões e detalhes sem rolagem horizontal, cadastro/expansão preservados; captura revisada. Não foi executada coleta de teste na produção, operação administrativa com dados reais, carga concorrente em escala ou instalação no PC. Gravações naturais já em andamento podem aparecer no painel; não foram disparadas consultas externas para testar.
