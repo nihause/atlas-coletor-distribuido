@@ -5,9 +5,9 @@ ATLAS_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 command -v zenity >/dev/null || { echo 'Use o pacote .deb pelo instalador gráfico do Ubuntu. Este instalador alternativo requer Zenity.'; exit 1; }
 . /etc/os-release
 [ "${ID:-}" = ubuntu ] || { zenity --error --text='Este instalador é destinado ao Ubuntu.'; exit 1; }
-if ! command -v python3 >/dev/null || ! python3 -c 'import venv, ensurepip, sys, ctypes; assert sys.version_info >= (3,11); ctypes.CDLL("libxcb-cursor.so.0"); ctypes.CDLL("libxkbcommon-x11.so.0"); ctypes.CDLL("libOpenGL.so.0")' 2>/dev/null; then
+if ! command -v python3 >/dev/null || ! python3 -c 'import venv, ensurepip, sys, ctypes; assert sys.version_info >= (3,11); ctypes.CDLL("libxcb-cursor.so.0"); ctypes.CDLL("libxkbcommon-x11.so.0"); ctypes.CDLL("libOpenGL.so.0"); ctypes.CDLL("libEGL.so.1"); ctypes.CDLL("libGL.so.1")' 2>/dev/null; then
   zenity --question --text='Instalar Python 3, venv e dependências gráficas? O Ubuntu solicitará autorização de administrador.' || exit 0
-  pkexec /usr/bin/apt-get install -y python3 python3-venv libxcb-cursor0 libxkbcommon-x11-0 libopengl0
+  pkexec /usr/bin/apt-get install -y python3 python3-venv libxcb-cursor0 libxkbcommon-x11-0 libopengl0 libegl1 libgl1
 fi
 ATLAS_STATUS=$(mktemp -d /tmp/atlas-instalar.XXXXXX)
 trap 'rm -rf "$ATLAS_STATUS"' EXIT
