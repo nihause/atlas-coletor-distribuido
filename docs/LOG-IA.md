@@ -1,3 +1,10 @@
+## 2026-11-15 · Codex / GPT-6 · Dependências gráficas no runner do GitHub
+- **Pedido:** concluir os testes e a publicação da branch/PR do aplicativo gráfico.
+- **Causa / motivo:** primeira execução Actions falhou ao importar `PySide6.QtTest`: `libEGL.so.1` ausente na imagem limpa Ubuntu 24.04; os 74 testes locais estavam aprovados. O pacote .deb já declara `libegl1` nas dependências.
+- **Mudou:** `.github/workflows/aplicativo.yml`: prepara bibliotecas Qt/OpenGL/XCB via apt no runner temporário, antes dos testes e do empacotamento. Nenhum sudo executado na máquina Radar. Branch enviada com implementação no commit `467a2b358a392e60d56c8d7ae56bb826c867c10c`; PR aberto: https://github.com/nihause/atlas-coletor-distribuido/pull/1.
+- **Testado:** log de falha Actions inspecionado; diff sem erros. Nova execução Actions acompanha esta correção. Testes do aplicativo e do pacote permanecem registrados na entrada anterior. NÃO testado: instalação administrativa real, bandeja/autostart GNOME e APIs de produção.
+- **Atenção:** alteração restrita à automação do repositório e documentação; o pacote local e a lógica do aplicativo não mudaram.
+
 ## 2026-11-15 · Codex / GPT-6 · Aplicativo gráfico Atlas 0.2.0 para Ubuntu
 - **Pedido:** evoluir o repositório existente para aplicativo PySide6, com configuração visual, painel, controle do motor, logs, instalador .deb, atualizações GitHub e branch/commit/PR.
 - **Causa / motivo:** a operação anterior dependia do terminal; a validação de conexão só distinguia acesso e indisponibilidade, e não havia interface ou pacote desktop. Repositório começou limpo em `main`, commit `ff7740b`; criada a branch `feat/aplicativo-grafico-linux` sem sobrescrever trabalho existente.
