@@ -219,3 +219,11 @@ def test_falha_reinicio_nao_fecha_janela(window,monkeypatch):
     monkeypatch.setattr(module.QProcess,'startDetached',lambda *a:(False,-1))
     w.restart_application()
     assert not w.close_pending and 'Não foi possível reiniciar' in w.update_status.text()
+
+
+def test_datajud_publico_preenchido_sem_sobrescrever(window):
+    from atlas_worker.datajud_public import DATAJUD_PUBLIC_KEY
+    w=window;values=w.values();values['DATAJUD_API_KEY']='';w.fill(values)
+    assert w.fields['DATAJUD_API_KEY'].text()==DATAJUD_PUBLIC_KEY
+    values['DATAJUD_API_KEY']='chave-personalizada-ficticia';w.fill(values)
+    assert w.fields['DATAJUD_API_KEY'].text()=='chave-personalizada-ficticia'

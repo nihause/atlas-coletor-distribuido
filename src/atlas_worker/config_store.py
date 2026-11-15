@@ -10,6 +10,7 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 from .config import Settings
+from .datajud_public import DATAJUD_PUBLIC_KEY
 
 DEFAULT_API = "https://justisoft.com.br/radar/api/v1"
 
@@ -60,7 +61,7 @@ class ConfigStore:
 def defaults() -> dict[str, str]:
     import re
     name = re.sub(r"[^A-Za-z0-9_.:-]", "-", socket.gethostname())[:50]
-    return {"RADAR_API_URL": DEFAULT_API, "WORKER_NAME": "coletor-" + name, "WORKER_TOKEN": "", "MAX_CONCURRENCY": "2", "HEARTBEAT_INTERVAL": "30", "LOG_LEVEL": "INFO", "DATAJUD_API_KEY": ""}
+    return {"RADAR_API_URL": DEFAULT_API, "WORKER_NAME": "coletor-" + name, "WORKER_TOKEN": "", "MAX_CONCURRENCY": "2", "HEARTBEAT_INTERVAL": "30", "LOG_LEVEL": "INFO", "DATAJUD_API_KEY": DATAJUD_PUBLIC_KEY}
 
 
 def save_preferences(path: Path, values: dict) -> None:

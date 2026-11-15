@@ -28,6 +28,7 @@ from ..config_store import ConfigStore, atomic_private, config_path, defaults, s
 from ..instance import AlreadyRunning, FileLock
 from ..logging_config import JsonFormatter, RedactFilter, sanitize, sanitize_data, setup
 from ..updates import ReleaseClient
+from ..datajud_public import DATAJUD_PUBLIC_KEY
 from ..verification import Verification, check_connection
 from .desktop import autostart_path, set_autostart
 from .runtime import AsyncJob, EngineThread
@@ -178,7 +179,7 @@ class Window(QMainWindow):
         layout = self.page("Configuração")
         scroll = QScrollArea(); scroll.setWidgetResizable(True); content = QWidget(); content.setObjectName("surface"); form = QFormLayout(content)
         self.fields = {}
-        for key, label in [("RADAR_API_URL", "Endereço da API do Radar"), ("WORKER_NAME", "Nome do computador / coletor"), ("WORKER_TOKEN", "Chave de API do Radar"), ("MAX_CONCURRENCY", "Concorrência máxima"), ("HEARTBEAT_INTERVAL", "Heartbeat (segundos)"), ("LOG_LEVEL", "Nível de log"), ("DATAJUD_API_KEY", "Chave DataJud (opcional)")]:
+        for key, label in [("RADAR_API_URL", "Endereço da API do Radar"), ("WORKER_NAME", "Nome do computador / coletor"), ("WORKER_TOKEN", "Chave de API do Radar"), ("MAX_CONCURRENCY", "Concorrência máxima"), ("HEARTBEAT_INTERVAL", "Heartbeat (segundos)"), ("LOG_LEVEL", "Nível de log"), ("DATAJUD_API_KEY", "Chave pública DataJud (CNJ)")]:
             if key in ("MAX_CONCURRENCY", "HEARTBEAT_INTERVAL"):
                 field = QSpinBox(); field.setRange(*( (1, 8) if key == "MAX_CONCURRENCY" else (5, 300)))
             elif key == "LOG_LEVEL":
@@ -241,6 +242,7 @@ class Window(QMainWindow):
     def fill(self, values):
         for key, field in self.fields.items():
             value = values.get(key, "")
+            if key == "DATAJUD_API_KEY" and not value.strip(): value = DATAJUD_PUBLIC_KEY
             if isinstance(field, QSpinBox):
                 try: field.setValue(int(value))
                 except (ValueError, TypeError): field.setValue(2 if key == "MAX_CONCURRENCY" else 30)

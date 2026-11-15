@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from .datajud_public import DATAJUD_PUBLIC_KEY
 
 
 def default_state_dir() -> Path:
@@ -27,12 +28,18 @@ class Settings(BaseSettings):
     heartbeat_interval: int = Field(30, ge=5, le=300)
     log_level: str = "INFO"
     task_types: str = "djen_janela,datajud_lote"
-    datajud_api_key: SecretStr = SecretStr("")
+    datajud_api_key: SecretStr = SecretStr(DATAJUD_PUBLIC_KEY)
     state_dir: Path = Field(default_factory=default_state_dir)
     request_timeout: float = Field(60.0, ge=5, le=300)
     datajud_timeout: float = Field(120.0, ge=10, le=300)
     allow_insecure_http: bool = False
     batch_items: int = Field(100, ge=10, le=500)
+
+    @field_validator("datajud_api_key", mode="before")
+    @classmethod
+    def _datajud_public_default(cls, value):
+        text = value.get_secret_value() if isinstance(value, SecretStr) else value
+        return text if text and str(text).strip() else DATAJUD_PUBLIC_KEY
 
     @field_validator("worker_name")
     @classmethod

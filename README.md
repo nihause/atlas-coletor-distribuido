@@ -1,3 +1,5 @@
+> A partir de 0.2.3, a chave pública do DataJud vem preenchida automaticamente; chaves personalizadas são preservadas. Veja [o comportamento](docs/DATAJUD-PUBLICO.md).
+
 > Versão oficial: [Atlas 0.2.2](https://github.com/nihause/atlas-coletor-distribuido/releases/tag/v0.2.2) · [Baixar instalador Ubuntu 24.04 amd64](https://github.com/nihause/atlas-coletor-distribuido/releases/download/v0.2.2/atlas-coletor_0.2.2_ubuntu24.04_amd64.deb). Repositório público, sem token GitHub. Quem usa 0.2.1 deve instalar o 0.2.2 uma vez para obter o novo atualizador assinado; mantenha seu .env e sua chave Radar.
 
 > Atualização 0.2.2: consulte [atualizações e publicação](docs/ATUALIZACOES.md). Este guia substitui as instruções anteriores de atualização por simples checksum/abertura manual.

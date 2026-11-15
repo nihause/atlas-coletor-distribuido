@@ -1,3 +1,10 @@
+## 2026-11-15 · Codex / GPT-6 · Chave pública DataJud preenchida por padrão
+- **Pedido:** confirmar que a chave DataJud é pública e deixá-la preenchida automaticamente.
+- **Causa / motivo:** Settings e formulário iniciavam DATAJUD_API_KEY vazio, exigindo cópia manual da credencial compartilhada. A documentação oficial do CNJ confirma o caráter público e informa a chave vigente, conferida em 15/11/2026.
+- **Mudou:** `datajud_public.py`: constante pública oficial com fonte/data; `config.py`: padrão para ausente/vazio/espaços; `config_store.py` e GUI: formulário preenchido sem sobrescrever valor próprio ou regravar .env ao abrir; rótulo identifica chave pública; `.env.example`, versão 0.2.3, README, CHANGELOG, `docs/DATAJUD-PUBLICO.md` e notas da versão. Inclusão expressamente solicitada pelo usuário, não é segredo privado; tokens Radar/chave de assinatura continuam protegidos.
+- **Testado:** suíte completa Python/Qt repetida; testes novos cobrem padrão, valor vazio/espaços, preservação de chave própria/extras e preenchimento real do formulário. Gitleaks da árvore sem segredos. Resultado final de publicação registrado após o workflow. NÃO testado: coleta real DataJud, instalação administrativa remota, atualização instalada completa e Windows.
+- **Atenção:** publicar correção 0.2.3 sem substituir Release 0.2.2, mantendo a chave de assinatura oficial. Nenhuma alteração no Radar/contrato 1, concorrência, fila ou limites. A chave pública pode mudar no CNJ; campo segue editável. Não foi acessado o computador consulta.
+
 ## 2026-11-15 · Codex / GPT-6 · Atlas 0.2.2 publicado e validado pela API pública
 - **Pedido:** publicar o Release oficial com instalador/assinatura e validar o atualizador, preparando o computador consulta.
 - **Causa / motivo:** missão autorizou a primeira publicação pública; repositório público, main e PR integrado conferidos, sem Release/tag anterior.
