@@ -2,7 +2,7 @@
 +++ b/radar/admin/coletores.php
 @@ -250,36 +250,19 @@
    </section>
- 
+
    <section class="ds-card coletores-cartao" id="programa-coletor" aria-labelledby="programa-coletor-titulo">
 -    <header class="coletores-cabecalho"><div><h2 class="ds-h3" id="programa-coletor-titulo">Programa do coletor</h2><p class="ds-text-muted">Atlas Worker · Python 3.11 ou superior · Linux e Windows</p></div><a class="ds-btn ds-btn--secondary" href="https://github.com/nihause/atlas-coletor-distribuido" target="_blank" rel="noopener noreferrer">Ver código do programa</a></header>
 -    <p>O <strong>atlas-worker</strong> roda no computador coletor, recebe tarefas do Radar e envia os resultados. Para obter o programa, acesse o repositório privado com uma conta autorizada e use <strong>Code → Download ZIP</strong> ou clone com Git.</p>
@@ -49,10 +49,21 @@
 +    </div></details>
      <dl class="coletores-dados"><div><dt>URL da API para configurar</dt><dd><code><?= e($baseApiUrl) ?></code></dd></div></dl>
    </section>
- 
+
+@@ -320,8 +303,8 @@
+       <div class="ds-field">
+         <label class="ds-label">Sistema operacional</label>
+         <div class="coletor-estilo-15 ds-row">
+-          <label class="coletor-estilo-16 ds-check"><input type="radio" name="sistema" value="Linux" checked> Linux (Ubuntu / Debian)</label>
+-          <label class="coletor-estilo-16 ds-check"><input type="radio" name="sistema" value="Windows"> Windows 10 / 11 / Server</label>
++          <label class="coletor-estilo-16 ds-check"><input type="radio" name="sistema" value="Linux" checked> Linux (Ubuntu 24.04 x64)</label>
++          <label class="coletor-estilo-16 ds-check"><input type="radio" name="sistema" value="Windows"> Windows 10 / 11 x64</label>
+         </div>
+       </div>
+
 @@ -405,33 +388,10 @@
        </div>
- 
+
        <div class="coletor-estilo-36">
 -        <label class="ds-label">4. Comandos de instalação no computador remoto</label>
 -        <div class="coletor-estilo-37">
@@ -86,7 +97,7 @@
 +        <p>Abra o Atlas no menu de aplicativos, cole a URL, o identificador e a chave acima e clique em <strong>Conectar e iniciar</strong>. Não precisa usar terminal nem instalar Python.</p>
 +      </div>
      </div>
- 
+
      <div class="coletor-estilo-44 ds-row">
 --- a/radar/assets/coletores.js
 +++ b/radar/assets/coletores.js
@@ -112,7 +123,7 @@
    if (el) {
 --- /dev/null
 +++ b/radar/admin/baixar-coletor.php
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,35 @@
 +<?php
 +declare(strict_types=1);
 +require __DIR__ . '/../lib/bootstrap.php';
@@ -129,6 +140,9 @@
 +    $cache = $dir . '/latest.json';
 +    $payload = null;
 +    if (is_file($cache) && !is_link($cache) && filemtime($cache) > time() - 600) $payload = json_decode((string) file_get_contents($cache), true);
++    if (is_array($payload)) {
++        try { coletor_download_url($payload, $os); } catch (RuntimeException $e) { $payload = null; }
++    }
 +    if (!is_array($payload)) {
 +        $curl = curl_init('https://api.github.com/repos/nihause/atlas-coletor-distribuido/releases/latest');
 +        curl_setopt_array($curl, [CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 3, CURLOPT_TIMEOUT => 8, CURLOPT_USERAGENT => 'Radar-Atlas-Download', CURLOPT_HTTPHEADER => ['Accept: application/vnd.github+json'], CURLOPT_FOLLOWLOCATION => false]);
@@ -211,6 +225,6 @@
 +- **Pedido:** instaladores Windows/Linux e identificação automática no site.
 +- **Causa / motivo:** a tela ainda indicava repositório privado e instalação por Git/Python; não oferecia EXE autônomo.
 +- **Mudou:** `radar/admin/coletores.php` agora oferece downloads e instruções da GUI; modal usa sistema cadastrado. `radar/assets/coletores.js` sugere plataforma do navegador sem esconder alternativas. Novo endpoint autenticado `baixar-coletor.php`, resolvedor restrito em `radar/lib/coletor_download.php`, testes e `docs/coletores-download.md`. Atlas 0.2.4 empacota os dois sistemas em runners nativos.
-+- **Testado:** 7 verificações do resolvedor, 47 de administração e 19 de progresso aprovadas; sintaxe dos três PHP aprovada. Firefox/CSP em 390/1280 px: cadastro, expansão, downloads e recomendação Windows/Linux/macOS, sem rolagem horizontal. Sem consulta às fontes ou alteração de dados. NÃO testado: instalação no PC2 físico nem clique autenticado do navegador do usuário.
++- **Testado:** 7 verificações do resolvedor, 47 de administração e 19 de progresso aprovadas; sintaxe dos três PHP aprovada. Firefox/CSP em 390/1280 px: cadastro, expansão, downloads e recomendação Windows/Linux/macOS, sem rolagem horizontal. Atlas: 103 testes Linux (1 exclusivo Windows omitido), 104 testes Windows e instalação/GUI/reinstalação/desinstalação nativas aprovados no Actions 43747097494; configuração preservada. Modal PC2 Windows conferido com fixture e lint de design aprovado. Release 0.2.4 publicado pelo Actions 43747409519; resolvedor PHP real encontrou EXE e DEB oficiais, ambos baixados com assinatura/tamanho/SHA-256 válidos; verificador Linux 0.2.3 aceitou o manifesto novo. Sem consulta às fontes ou alteração de dados. NÃO testado: instalação no PC2 físico nem clique autenticado do navegador do usuário.
 +- **Atenção:** Windows x64 e Ubuntu 24.04 x64; cache público de metadados por 10 minutos, sem credenciais. Instalador inicial pode mostrar editor desconhecido no Windows. Sem sudo, restart, mudança de contrato, banco ou limites de coleta.
 +

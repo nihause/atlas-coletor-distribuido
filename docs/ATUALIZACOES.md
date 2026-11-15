@@ -1,3 +1,7 @@
+## Windows e Linux a partir de 0.2.4
+
+Veja [instalação Windows/Linux](windows-linux.md). O instalador Windows x64 inclui Python/Qt, cria atalho no menu Iniciar e usa instalação por usuário. Atualizações Windows usam `manifest-windows.json` e `manifest-windows.sig`; Linux mantém `manifest.json`/`manifest.sig`, sem quebrar Atlas 0.2.2/0.2.3. Ambos verificam assinatura Ed25519 e pacote/plataforma antes de instalar. No Windows, o instalador aguarda a saída do aplicativo e preserva AppData. Não requer sudo nem instalação externa de Python. O certificado Authenticode não está disponível; o instalador inicial pode mostrar aviso de editor desconhecido.
+
 ## Distribuição oficial 0.2.2
 
 Repositório público: https://github.com/nihause/atlas-coletor-distribuido.
