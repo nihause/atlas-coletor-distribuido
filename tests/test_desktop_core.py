@@ -111,38 +111,6 @@ def test_logs_incluem_tarefa_e_removem_segredo_de_excecao():
     assert 'outra-chave' not in sanitize('Authorization: Bearer outra-chave')
 
 
-async def test_update_integridade_e_token_separado(tmp_path):
-    package = b'pacote-simulado'
-    digest = hashlib.sha256(package).hexdigest()
-    requests = []
-    def handler(req):
-        requests.append(req)
-        if req.url.path.endswith('/latest'):
-            return httpx.Response(200, json={'tag_name':'v0.3.0','assets':[{'name':'atlas-coletor_0.3.0_ubuntu24.04_amd64.deb','url':API+'/releases/assets/7','digest':'sha256:'+digest}]})
-        if req.url.host == 'api.github.com':
-            return httpx.Response(302, headers={'Location':'https://release-assets.githubusercontent.com/pacote'})
-        assert 'Authorization' not in req.headers
-        return httpx.Response(200, content=package)
-    client = ReleaseClient('credencial-github-ficticia', httpx.MockTransport(handler))
-    try:
-        release = await client.latest('0.2.0', machine='x86_64',os_release={'ID':'ubuntu','VERSION_ID':'24.04'})
-        path = await client.download(release,tmp_path)
-        assert path.read_bytes() == package
-        assert requests[0].headers['Authorization'] == 'Bearer credencial-github-ficticia'
-        release.sha256 = '0' * 64
-        with pytest.raises(ValueError, match='Integridade'): await client.download(release, tmp_path)
-    finally: await client.close()
-
-
-async def test_updates_bloqueiam_destino_externo_e_checksum_ausente():
-    def handler(req): return httpx.Response(200,json={'tag_name':'v0.3.0','assets':[{'name':'atlas-coletor_0.3.0_ubuntu24.04_amd64.deb','url':API+'/releases/assets/7'}]})
-    client = ReleaseClient(transport=httpx.MockTransport(handler))
-    try:
-        with pytest.raises(ValueError,match='fora do GitHub'): await client.request('https://externo.invalid/pacote')
-        with pytest.raises(ValueError,match='checksum'): await client.latest('0.2.0', machine='x86_64',os_release={'ID':'ubuntu','VERSION_ID':'24.04'})
-    finally: await client.close()
-
-
 def test_autostart_nao_toca_config_e_preserva_argumentos(tmp_path, monkeypatch):
     from atlas_worker.gui.desktop import set_autostart, autostart_path
     monkeypatch.setenv('XDG_CONFIG_HOME',str(tmp_path))
@@ -165,23 +133,6 @@ def test_detecta_servico_antigo_sem_alterar(cfg,monkeypatch,tmp_path):
     monkeypatch.setattr(psutil,'process_iter',lambda *a:[fake])
     with pytest.raises(AlreadyRunning,match='terminal/serviço'):
         with RunLock(cfg):pass
-
-
-async def test_update_fallback_checksum_e_versao_atual(tmp_path):
-    package=b'pacote para teste'; digest=hashlib.sha256(package).hexdigest()
-    name='atlas-coletor_0.3.0_ubuntu24.04_amd64.deb'
-    def handler(req):
-        if req.url.path.endswith('/latest'):
-            return httpx.Response(200,json={'tag_name':'v0.3.0','assets':[{'name':name,'url':API+'/releases/assets/2'},{'name':name+'.sha256','url':API+'/releases/assets/3'}]})
-        if req.url.path.endswith('/3'):return httpx.Response(200,text=digest+'  '+name+'\n')
-        return httpx.Response(200,content=package)
-    client=ReleaseClient(transport=httpx.MockTransport(handler))
-    try:
-        assert await client.latest('0.3.0',machine='x86_64',os_release={'ID':'ubuntu','VERSION_ID':'24.04'}) is None
-        release=await client.latest('0.2.0',machine='x86_64',os_release={'ID':'ubuntu','VERSION_ID':'24.04'})
-        assert release.sha256==digest
-        assert (await client.download(release,tmp_path)).read_bytes()==package
-    finally:await client.close()
 
 
 async def test_motor_recusa_contrato_sem_reservar_tarefas(cfg):

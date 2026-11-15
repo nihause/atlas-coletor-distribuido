@@ -44,6 +44,8 @@ class EngineThread(QThread):
         self.connected = False
         self.last_contact = "—"
         self.last_ok = 0.0
+        self.update_status = {}
+        self.drain_requested = False
 
     def contact(self, ok: bool):
         self.connected = ok
@@ -55,6 +57,16 @@ class EngineThread(QThread):
         self.stop_requested = True
         if self.loop and self.worker:
             self.loop.call_soon_threadsafe(self.worker.parar.set)
+
+    def drain(self, enabled=True):
+        self.drain_requested = enabled
+        if self.loop and self.worker:
+            self.loop.call_soon_threadsafe(setattr, self.worker, 'drenando', enabled)
+
+    def report_update(self, status):
+        self.update_status = status
+        if self.loop and self.worker:
+            self.loop.call_soon_threadsafe(setattr, self.worker, 'atualizacao', dict(status))
 
     async def _publish(self, once=False):
         while True:
@@ -73,6 +85,8 @@ class EngineThread(QThread):
         client = self.client_factory(self.cfg, observer=self.contact)
         self.loop = asyncio.get_running_loop()
         self.worker = self.worker_factory(self.cfg, client)
+        self.worker.drenando = self.drain_requested
+        self.worker.atualizacao = dict(self.update_status)
         publisher = asyncio.create_task(self._publish())
         if self.stop_requested:
             self.worker.parar.set()

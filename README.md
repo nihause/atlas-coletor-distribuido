@@ -1,3 +1,5 @@
+> Atualização 0.2.2: consulte [atualizações e publicação](docs/ATUALIZACOES.md). Este guia substitui as instruções anteriores de atualização por simples checksum/abertura manual.
+
 # atlas-coletor-distribuido
 
 Coletor distribuído do ecossistema **Atlas/Radar**. Cada computador conectado roda um *worker* Python que pede tarefas ao servidor central (o Radar), executa as consultas autorizadas e devolve os resultados em lotes. **O worker nunca acessa o banco de dados**: só fala com uma API HTTPS autenticada.
@@ -24,7 +26,7 @@ O limite de requisições às fontes (DJEN, DataJud) é **global**: o worker per
 
 ## Aplicativo gráfico no Ubuntu 24.04
 
-Abra o pacote **atlas-coletor_0.2.1_ubuntu24.04_amd64.deb** no instalador do Ubuntu. Depois, procure **ATLAS — Coletor Distribuído** no menu de aplicativos. Python e Qt acompanham o pacote.
+Abra o pacote **atlas-coletor_0.2.2_ubuntu24.04_amd64.deb** no instalador do Ubuntu. Depois, procure **ATLAS — Coletor Distribuído** no menu de aplicativos. Python e Qt acompanham o pacote.
 
 Na aba **Configuração**, informe o endereço `https://justisoft.com.br/radar/api/v1`, o nome e a chave individual criada em **Radar → Administração → Coletores**. Clique em **Testar conexão** e depois **Conectar e iniciar**. A tela mostra tarefas, conexão, produtividade e logs sem precisar de terminal. A chave DataJud tem campo próprio, caso este computador execute tarefas DataJud.
 

@@ -38,6 +38,8 @@ class Worker:
         self.ck = Checkpoint(cfg.state_dir)
         self.parar = asyncio.Event()
         self.erro_fatal: ClientError | None = None
+        self.drenando = False
+        self.atualizacao = {}
         self.pausado = False
         self.max_conc = cfg.max_concurrency
         self.ativas: dict[int, asyncio.Task] = {}
@@ -51,7 +53,7 @@ class Worker:
         self._http_proprio = http_fontes is None
         self.lim_djen = Limitador(client, "djen", sleep)
         self.lim_dj = Limitador(client, "datajud", sleep)
-        self.hb = Heartbeat(client, self.metrics, cfg.heartbeat_interval, lambda: next(iter(self.ativas), None), self._receber_config, self._perdeu_acesso, self.progresso_heartbeat)
+        self.hb = Heartbeat(client, self.metrics, cfg.heartbeat_interval, lambda: next(iter(self.ativas), None), self._receber_config, self._perdeu_acesso, self.progresso_heartbeat, lambda: self.atualizacao)
 
     def progresso_heartbeat(self) -> list[dict]:
         return [{"id": ctx.tarefa.id, "progresso": ctx.progresso} for ctx in self.contextos.values()][:8]
@@ -109,6 +111,12 @@ class Worker:
             await self._retomar_pendentes()
             ocioso = 0
             while not self.parar.is_set():
+                if self.drenando:
+                    if not self.ativas:
+                        self.parar.set()
+                        break
+                    await self._dormir(0.5)
+                    continue
                 if self.pausado or len(self.ativas) >= self.max_conc:
                     await self._dormir(2)
                     if uma_rodada and not self.ativas:

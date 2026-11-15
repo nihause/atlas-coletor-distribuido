@@ -4,17 +4,20 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+import time
+import subprocess
 import socket
 import sys
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal, QProcess
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGridLayout,
     QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow,
-    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
+    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox, QProgressBar,
     QSystemTrayIcon, QMenu, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 from pydantic import ValidationError
@@ -33,6 +36,7 @@ from .style import STYLE
 
 class LogBus(QObject):
     entry = Signal(dict)
+    progress = Signal(int, int)
 
 
 class GuiLogHandler(logging.Handler):
@@ -56,9 +60,16 @@ class Window(QMainWindow):
         self.entries = []
         self.secrets = []
         self.latest = None
+        self.available_version = ""
+        self.downloaded_package = None
+        self.update_checking = False
+        self.install_process = None
+        self.update_state = "Não verificada"
+        self.last_check = "Ainda não verificada"
         self.restart_pending = False
         self.close_pending = False
         self.install_pending = None
+        self.resume_after_update = False
         self.last_snapshot = {}
         self.last_problem = False
         self.prefs_path = config_path().parent / "desktop.json"
@@ -67,11 +78,12 @@ class Window(QMainWindow):
         except (OSError, ValueError):
             prefs = {}
         self.setWindowTitle("ATLAS — Coletor Distribuído")
-        self.resize(1080, 820)
-        self.setMinimumSize(760, 600)
+        area = QApplication.primaryScreen().availableGeometry()
+        self.resize(min(1180, area.width()-48), int(area.height()*0.94))
+        self.setMinimumSize(min(760, area.width()-48), min(600, int(area.height()*0.9)))
         self.setWindowIcon(QIcon(str(Path(__file__).with_name("atlas.svg"))))
         root = QWidget(); layout = QVBoxLayout(root)
-        layout.setContentsMargins(28, 24, 28, 24); layout.setSpacing(14)
+        layout.setContentsMargins(22, 14, 22, 12); layout.setSpacing(8)
         title = QLabel("ATLAS — Coletor Distribuído"); title.setObjectName("title")
         layout.addWidget(title)
         self.identity = QLabel(f"{socket.gethostname()}  ·  Versão {__version__}"); self.identity.setObjectName("subtitle")
@@ -106,10 +118,13 @@ class Window(QMainWindow):
         self.fill(initial)
         self.load_recent_logs(Path(initial.get("STATE_DIR") or default_state_dir()))
         self.update_path()
-        self.bus = LogBus(self); self.bus.entry.connect(self.add_log)
+        self.bus = LogBus(self); self.bus.entry.connect(self.add_log); self.bus.progress.connect(self.download_progress)
         self.log_handler = GuiLogHandler(self.bus, [])
         logging.getLogger().addHandler(self.log_handler)
         self.statusBar().showMessage("Pronto. Nenhuma tarefa é executada até você conectar.")
+        self.update_timer = QTimer(self); self.update_timer.setInterval(6*60*60*1000)
+        self.update_timer.timeout.connect(self.automatic_check); self.update_timer.start()
+        QTimer.singleShot(1500, self.automatic_check)
 
     def button(self, text, action, primary=False):
         btn = QPushButton(text); btn.clicked.connect(action)
@@ -117,15 +132,15 @@ class Window(QMainWindow):
         return btn
 
     def page(self, name):
-        page = QWidget(); layout = QVBoxLayout(page); layout.setContentsMargins(22, 22, 22, 22); layout.setSpacing(16)
+        page = QWidget(); layout = QVBoxLayout(page); layout.setContentsMargins(16, 12, 16, 12); layout.setSpacing(10)
         self.tabs.addTab(page, name)
         return layout
 
     def build_dashboard(self):
         outer = self.page("Painel")
         scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        content = QWidget(); content.setObjectName("surface"); layout = QVBoxLayout(content); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(14)
-        scroll.setWidget(content); outer.addWidget(scroll)
+        content = QWidget(); content.setObjectName("surface"); layout = QVBoxLayout(content); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(8)
+        self.dashboard_scroll = scroll; scroll.setWidget(content); outer.addWidget(scroll)
         activity = QGroupBox("O que está sendo buscado agora"); activity_box = QVBoxLayout(activity)
         self.task_details = QLabel("Nenhuma tarefa em execução. Conecte para receber trabalho do Radar.")
         self.task_details.setTextFormat(Qt.TextFormat.PlainText); self.task_details.setWordWrap(True)
@@ -139,13 +154,13 @@ class Window(QMainWindow):
         self.last_contact = QLabel("—")
         self.worker_name_label = QLabel("—")
         for row, (name, field) in enumerate([("Coletor", self.worker_name_label), ("Servidor Radar", self.connection), ("Serviço coletor", self.service), ("Última comunicação", self.last_contact)]):
-            grid.addWidget(QLabel(name), row, 0); grid.addWidget(field, row, 1)
+            grid.addWidget(QLabel(name), row // 2, (row % 2)*2); grid.addWidget(field, row // 2, (row % 2)*2+1)
         layout.addWidget(connection)
         metrics = QGridLayout(); self.metric_labels = {}
         for i, (key, label) in enumerate([("received", "Tarefas recebidas"), ("completed", "Concluídas"), ("errors", "Com erro"), ("active", "Em execução"), ("uptime", "Tempo de atividade"), ("read", "Itens lidos na fonte"), ("found", "Selecionados para envio"), ("sent", "Confirmados nesta execução")]):
-            group = QGroupBox(label); box = QVBoxLayout(group)
-            value = QLabel("0" if key != "uptime" else "00:00:00"); value.setObjectName("metric"); value.setMinimumHeight(44)
-            box.addWidget(value); metrics.addWidget(group, i // 3, i % 3); self.metric_labels[key] = value
+            group = QWidget(); box = QVBoxLayout(group); box.setContentsMargins(8, 4, 8, 4); box.setSpacing(2); box.addWidget(QLabel(label))
+            value = QLabel("0" if key != "uptime" else "00:00:00"); value.setObjectName("metric"); value.setMinimumHeight(30)
+            box.addWidget(value); metrics.addWidget(group, i // 4, i % 4); self.metric_labels[key] = value
         layout.addLayout(metrics)
         note = QLabel("Os indicadores representam esta execução do aplicativo. O Radar mantém o histórico central das tarefas."); note.setWordWrap(True); note.setObjectName("subtitle"); layout.addWidget(note)
         actions = QHBoxLayout()
@@ -207,14 +222,21 @@ class Window(QMainWindow):
 
     def build_updates(self):
         layout = self.page("Atualizações")
-        self.update_label = QLabel(f"Versão instalada: {__version__}\nNenhuma consulta realizada."); self.update_label.setWordWrap(True); layout.addWidget(self.update_label)
-        explanation = QLabel("As atualizações vêm dos Releases oficiais do projeto no GitHub. O pacote será verificado por SHA-256 e aberto no instalador do Ubuntu após sua confirmação. A configuração local é preservada."); explanation.setWordWrap(True); layout.addWidget(explanation)
-        self.github_token = QLineEdit(); self.github_token.setEchoMode(QLineEdit.EchoMode.Password); self.github_token.setPlaceholderText("Token GitHub para o repositório privado (opcional, não é salvo)")
+        self.update_label = QLabel(f"Versão instalada: {__version__}\nÚltima versão: ainda não consultada"); self.update_label.setWordWrap(True); layout.addWidget(self.update_label)
+        self.update_status = QLabel("Verificação automática ao abrir e a cada 6 horas."); self.update_status.setWordWrap(True); layout.addWidget(self.update_status)
+        self.release_notes = QPlainTextEdit(); self.release_notes.setReadOnly(True); self.release_notes.setPlaceholderText("Novidades da versão publicada"); layout.addWidget(self.release_notes, 1)
+        self.update_progress = QProgressBar(); self.update_progress.setRange(0,100); layout.addWidget(self.update_progress)
+        self.github_token = QLineEdit(); self.github_token.setEchoMode(QLineEdit.EchoMode.Password); self.github_token.setPlaceholderText("Token GitHub opcional enquanto o repositório for privado; público dispensa token")
         layout.addWidget(self.github_token)
-        note = QLabel("Use um token do GitHub com acesso de leitura ao conteúdo do repositório. Este campo nunca recebe a chave do Radar."); note.setWordWrap(True); layout.addWidget(note)
+        note = QLabel("Pacotes oficiais verificados com assinatura Ed25519 e SHA-256. A instalação só começa com sua autorização e preserva a configuração."); note.setWordWrap(True); layout.addWidget(note)
+        row = QHBoxLayout()
         self.check_updates_btn = self.button("Verificar atualizações", self.check_updates)
-        self.update_btn = self.button("Atualizar", self.update_application); self.update_btn.setEnabled(False)
-        layout.addWidget(self.check_updates_btn); layout.addWidget(self.update_btn); layout.addStretch()
+        self.download_btn = self.button("Baixar atualização", self.download_update); self.download_btn.setEnabled(False)
+        self.update_btn = self.button("Atualizar agora", self.update_application); self.update_btn.setEnabled(False)
+        self.app_restart_btn = self.button("Reiniciar aplicativo", self.restart_application)
+        for btn in (self.check_updates_btn,self.download_btn,self.update_btn,self.app_restart_btn): row.addWidget(btn)
+        layout.addLayout(row)
+        self.cancel_update_btn = self.button("Cancelar atualização e continuar coleta", self.cancel_update); self.cancel_update_btn.hide(); layout.addWidget(self.cancel_update_btn)
 
     def fill(self, values):
         for key, field in self.fields.items():
@@ -315,16 +337,22 @@ class Window(QMainWindow):
         self.stop_btn.setEnabled(active)
         self.restart_btn.setEnabled(active and not self.restart_pending)
         self.check_updates_btn.setEnabled(not busy)
-        self.update_btn.setEnabled(not busy and self.latest is not None)
+        updating = self.install_process is not None or self.install_pending is not None
+        self.update_btn.setEnabled(not busy and self.latest is not None and not updating)
+        self.download_btn.setEnabled(not busy and self.latest is not None and not updating)
+        self.app_restart_btn.setEnabled(not busy and not active and not updating)
+        if updating:
+            self.start_btn.setEnabled(False); self.stop_btn.setEnabled(False); self.restart_btn.setEnabled(False)
 
     def start_engine(self):
-        if self.engine or self.jobs: return
+        if self.engine or self.jobs or self.install_process or self.install_pending: return
         cfg = self.save()
         if not cfg: return
         setup(cfg.log_level, cfg.state_dir, self.secrets)
         self.log_handler = GuiLogHandler(self.bus, self.secrets)
         logging.getLogger().addHandler(self.log_handler)
         self.engine = self.engine_factory(cfg, parent=self)
+        self.engine.report_update({"estado": self.update_state, "ultima_versao": self.available_version})
         self.engine.snapshot.connect(self.apply_snapshot); self.engine.problem.connect(self.engine_problem)
         self.engine.finished.connect(self.engine_finished)
         self.last_problem = False
@@ -345,6 +373,7 @@ class Window(QMainWindow):
             lines.append(f"{task['fonte']} · tarefa #{task['id']} · {task['alvo']}\n{task['periodo']}\n{task['fase']} · {task['paginas']} páginas/consultas · {task['lidos']} lidos · {task['encontrados']} selecionados · {task['confirmados']} confirmados no Radar")
         self.task_details.setText(sanitize("\n\n".join(lines) if lines else data.get("waiting", "Aguardando tarefas do Radar"), self.secrets))
         self.recent_details.setText(sanitize("\n".join(f"Última tarefa #{t['id']}: {t['alvo']} · {t['fase']} · {t['confirmados']} confirmados" for t in data.get("recent", [])[:2]), self.secrets))
+        self.recent_details.setVisible(bool(self.recent_details.text()))
         stopping = bool(self.engine and self.engine.stop_requested)
         self.start_btn.setText("Parando coleta…" if stopping else (f"Coletando · {data['active']} tarefa(s)" if data["active"] else ("Coletor pausado" if data["service"] == "Pausado pelo Radar" else ("Aguardando tarefas" if data["connected"] else "Conectando ao Radar…"))))
         if data["connected"]:
@@ -438,39 +467,127 @@ class Window(QMainWindow):
                 self.show_message("Diagnóstico exportado sem configuração ou credenciais.")
             except OSError: self.show_message("Não foi possível gravar o diagnóstico.")
 
+    def set_update_state(self, state):
+        self.update_state = state
+        self.update_status.setText(f"Última verificação: {self.last_check}\n{state}")
+        if self.engine: self.engine.report_update({"estado": state, "ultima_versao": self.available_version})
+
+    def automatic_check(self):
+        if not self.jobs and not self.close_pending and not self.install_pending and not self.install_process:
+            self.check_updates()
+
     def check_updates(self):
+        if self.update_checking or self.jobs or self.install_pending or self.install_process: return
+        self.update_checking = True
         token = self.github_token.text().strip()
         if token: self.secrets.append(token)
-        self.latest = None
-        self.update_label.setText("Consultando Releases no GitHub…")
+        self.set_update_state("Consultando GitHub…")
         async def operation():
             client = ReleaseClient(token)
-            try: return await client.latest(__version__)
+            try:
+                release = await client.latest(__version__)
+                return release, client.available_version
             finally: await client.close()
-        def received(release):
-            self.latest = release
-            self.update_label.setText(f"Versão instalada: {__version__}\n" + (f"Disponível: {release.version} · {release.name}" if release else "Você está na versão mais recente publicada."))
-        self.run_job(operation, received)
+        def received(result):
+            release, self.available_version = result
+            self.latest = release; self.downloaded_package = None
+            self.last_check = datetime.now().astimezone().strftime("%d/%m/%Y %H:%M")
+            self.update_label.setText(f"Versão instalada: {__version__}\n" + (f"Última versão: {release.version}" if release else f"Última versão publicada: {self.available_version}. Nenhuma atualização necessária."))
+            self.release_notes.setPlainText(release.notes if release else "")
+            self.set_update_state("Atualização disponível" if release else "Atualizado")
+            if release: self.identity.setText(f"{socket.gethostname()} · Versão {__version__} · Atualização {release.version} disponível na aba Atualizações")
+            if release and self.tray: self.tray.showMessage("Atlas", f"Versão {release.version} disponível na aba Atualizações.")
+        self.run_update_job(operation, received)
+
+    def run_update_job(self, operation, callback):
+        job = AsyncJob(operation, self); self.jobs.append(job)
+        job.done.connect(callback)
+        job.failed.connect(lambda error: self.set_update_state("Erro: " + sanitize(error,self.secrets)))
+        job.finished.connect(lambda: self.finish_update_job(job))
+        self.set_controls(); job.start()
+
+    def finish_update_job(self, job):
+        self.update_checking = False
+        self.job_finished(job)
+
+    def download_progress(self, done, total):
+        self.update_progress.setValue(int(done*100/max(1,total)))
+        self.update_status.setText(f"Baixando: {done//1024//1024} de {total//1024//1024} MB")
+
+    def download_update(self, install=False):
+        if not self.latest or self.jobs: return
+        release = self.latest; token = self.github_token.text().strip()
+        self.set_update_state("Baixando atualização")
+        async def operation():
+            client = ReleaseClient(token)
+            try: return await client.download(release, default_state_dir()/"downloads", self.bus.progress.emit)
+            finally: await client.close()
+        def received(path):
+            self.downloaded_package = path; self.set_update_state("Pacote autenticado e pronto para instalar")
+            if install and not self.close_pending: self.prepare_install(path)
+        self.run_update_job(operation,received)
 
     def update_application(self):
         if not self.latest or self.jobs: return
-        if QMessageBox.question(self, "Atualizar Atlas", "Baixar o pacote verificado e abrir o instalador do Ubuntu? Se o coletor estiver ativo, ele será encerrado com segurança antes da instalação.") != QMessageBox.StandardButton.Yes: return
-        release = self.latest; token = self.github_token.text().strip()
-        if token: self.secrets.append(token)
-        async def operation():
-            client = ReleaseClient(token)
-            try: return await client.download(release, default_state_dir() / "downloads")
-            finally: await client.close()
-        def downloaded(path):
-            if self.engine:
-                self.install_pending = path; self.stop_engine()
-            else: self.open_installer(path)
-        self.run_job(operation, downloaded)
+        if QMessageBox.question(self,"Atualizar Atlas","Instalar a versão oficial? As tarefas atuais terminarão antes da instalação. O Ubuntu pedirá autorização administrativa. Ao concluir, o Atlas reiniciará.") != QMessageBox.StandardButton.Yes: return
+        if self.downloaded_package: self.prepare_install(self.downloaded_package)
+        else: self.download_update(install=True)
+
+    def prepare_install(self, path):
+        self.resume_after_update = self.engine is not None
+        if self.engine:
+            self.install_pending = path; self.cancel_update_btn.show()
+            self.set_update_state("Aguardando finalização da coleta")
+            self.engine.drain(); self.set_controls()
+        else: self.open_installer(path)
+
+    def cancel_update(self):
+        self.resume_after_update = False
+        self.install_pending = None; self.cancel_update_btn.hide()
+        if self.engine: self.engine.drain(False)
+        self.set_update_state("Atualização cancelada; coleta liberada")
+        self.set_controls()
 
     def open_installer(self, path):
-        if QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
-            self.show_message("Pacote verificado. Conclua a instalação na janela do Ubuntu e depois reabra o Atlas.")
-        else: self.show_message("Não foi possível abrir o instalador do Ubuntu.", f"Abra o pacote verificado em {path} com um instalador de pacotes .deb.")
+        self.cancel_update_btn.hide()
+        if not Path('/opt/atlas-coletor/atlas-coletor').is_file():
+            self.set_update_state("Instalação gráfica disponível no Atlas instalado pelo .deb oficial.")
+            return
+        self.install_process = QProcess(self)
+        self.install_process.setProgram('/usr/bin/pkexec')
+        self.install_process.setArguments(['/opt/atlas-coletor/atlas-coletor','--install-update',str(path)])
+        self.install_process.finished.connect(self.install_finished)
+        self.install_process.errorOccurred.connect(self.install_error)
+        self.set_update_state("Aguardando autorização do Ubuntu e instalação")
+        self.set_controls(); self.install_process.start()
+
+    def install_error(self, error):
+        self.set_update_state("Falha ao abrir a instalação. A versão atual e a configuração foram preservadas.")
+        if self.install_process:
+            self.install_process.deleteLater(); self.install_process = None
+        self.set_controls()
+
+    def install_finished(self, code, status):
+        if not self.install_process: return
+        self.install_process.deleteLater(); self.install_process = None
+        if code == 0:
+            self.set_update_state("Instalação confirmada. Reiniciando aplicativo…")
+            self.restart_application()
+        else:
+            self.set_update_state("Instalação recusada ou falhou. Confira o gerenciador de pacotes do Ubuntu; a configuração permanece intacta.")
+        self.set_controls()
+
+    def restart_application(self):
+        if self.engine or self.jobs or self.install_process: return
+        executable = '/usr/bin/atlas-coletor'
+        if not Path(executable).is_file():
+            self.set_update_state("Reinício automático disponível no aplicativo instalado."); return
+        args = ['--env',str(self.store.path),'--restart-after',str(os.getpid())]
+        if self.resume_after_update or self.last_snapshot.get('connected'): args.append('--start')
+        started = QProcess.startDetached(executable,args)
+        ok = started[0] if isinstance(started,tuple) else started
+        if ok: self.close_pending = True; self.close()
+        else: self.set_update_state("Não foi possível reiniciar. Abra o Atlas pelo menu.")
 
     def quit_requested(self):
         self.close_pending = True; self.close()
@@ -478,6 +595,9 @@ class Window(QMainWindow):
     def closeEvent(self, event: QCloseEvent):
         if not self.close_pending and self.tray and self.background.isChecked():
             self.hide(); event.ignore(); return
+        if self.install_process:
+            event.ignore(); return
+        if self.install_pending: self.cancel_update()
         if self.engine or self.jobs:
             self.close_pending = True; self.restart_pending = False
             self.stop_engine(); self.show_message("Aguarde o encerramento seguro das tarefas e operações em andamento.")
@@ -491,7 +611,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="ATLAS — Coletor Distribuído")
     parser.add_argument("--env", type=Path, help="arquivo existente, compatível com a CLI")
     parser.add_argument("--start", action="store_true", help="conecta após abrir a interface")
+    parser.add_argument("--restart-after", type=int, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.restart_after:
+        for _ in range(300):
+            try: os.kill(args.restart_after, 0)
+            except ProcessLookupError: break
+            time.sleep(0.1)
+        else: return 6
     app = QApplication([sys.argv[0]])
     app.setApplicationName("Atlas Coletor"); app.setDesktopFileName("atlas-coletor"); app.setStyle("Fusion"); app.setStyleSheet(STYLE)
     path = args.env or (Path.cwd() / ".env" if (Path.cwd() / ".env").is_file() else config_path())

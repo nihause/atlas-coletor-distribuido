@@ -13,8 +13,9 @@ log = logging.getLogger("atlas_worker.heartbeat")
 
 
 class Heartbeat:
-    def __init__(self, client: RadarClient, metrics: Metrics, intervalo: int, tarefa_atual: Callable[[], int | None], ao_receber: Callable[[dict], None], ao_perder_acesso: Callable[[], None], progresso: Callable[[], list] | None = None):
+    def __init__(self, client: RadarClient, metrics: Metrics, intervalo: int, tarefa_atual: Callable[[], int | None], ao_receber: Callable[[dict], None], ao_perder_acesso: Callable[[], None], progresso: Callable[[], list] | None = None, atualizacao: Callable[[], dict] | None = None):
         self.client, self.metrics, self.intervalo = client, metrics, intervalo
+        self.atualizacao = atualizacao
         self.progresso = progresso
         self.tarefa_atual, self.ao_receber, self.ao_perder_acesso = tarefa_atual, ao_receber, ao_perder_acesso
 
@@ -23,6 +24,8 @@ class Heartbeat:
             dados = {**self.metrics.snapshot(self.tarefa_atual()), "versao": __version__}
             if self.progresso:
                 dados["progresso_tarefas"] = self.progresso()
+            if self.atualizacao:
+                dados["atualizacao"] = self.atualizacao()
             cfg = await self.client.heartbeat(dados)
             self.ao_receber(cfg)
         except Unauthorized:

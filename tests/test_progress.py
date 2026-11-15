@@ -65,3 +65,25 @@ def test_descricao_datajud_nao_expoe_lista_nem_reserva():
     snap=Contexto(tarefa).snapshot()
     assert snap['alvo']=='TJPR · 2 processos'
     assert tarefa.lease_token not in repr(snap) and '1'*20 not in repr(snap)
+
+async def test_atualizacao_aguarda_tarefa_sem_cancelar_e_sem_novas_reservas(cfg,mundo):
+    _,srv,fontes=mundo
+    fontes.djen['Banco Exemplo']=[item(1)];srv.adicionar_djen(1);srv.adicionar_djen(2)
+    w,c=novo_worker(cfg,mundo);w.max_conc=1
+    arrived=asyncio.Event();release=asyncio.Event()
+    original=fontes.transporte()
+    async def fonte(req):
+        arrived.set();await release.wait();return await original.handle_async_request(req)
+    await w.http.aclose();w.http=httpx.AsyncClient(transport=httpx.MockTransport(fonte))
+    motor=asyncio.create_task(w.rodar())
+    try:
+        await asyncio.wait_for(arrived.wait(),3);w.drenando=True
+        reservations=len([x for x in srv.chamadas if x[0]=='tarefas/reservar']);initial=len(w.ativas)
+        await asyncio.sleep(.08)
+        assert not motor.done() and not w.parar.is_set() and w.ativas
+        assert len([x for x in srv.chamadas if x[0]=='tarefas/reservar'])==reservations
+        release.set();await asyncio.wait_for(motor,3)
+        assert w.metrics.tarefas_concluidas==initial and srv.tarefas[1]['concluida'] is not None
+        assert len([x for x in srv.chamadas if x[0]=='tarefas/reservar'])==reservations
+    finally:
+        release.set();w.parar.set();await asyncio.gather(motor,return_exceptions=True);await c.aclose();await w.http.aclose()

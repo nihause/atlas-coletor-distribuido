@@ -45,6 +45,7 @@ def window(app, tmp_path, monkeypatch):
     path = tmp_path / '.env'
     ConfigStore(path).save({**defaults(), 'WORKER_TOKEN':TOKEN, 'STATE_DIR':str(tmp_path/'state')})
     handlers = logging.getLogger().handlers[:]
+    monkeypatch.setattr('atlas_worker.gui.app.QTimer.singleShot', lambda *args: None)
     w = Window(path); w.show(); app.processEvents()
     yield w
     w.background.setChecked(False); w.close_pending = True
@@ -170,3 +171,51 @@ async def test_encerramento_publica_contadores_finais(cfg,app):
     values=[];engine.snapshot.connect(values.append)
     await engine.execute()
     assert values[-1]['completed']==2 and values[-1]['sent']==45
+
+def test_cancelar_atualizacao_libera_coleta(window,app):
+    from types import SimpleNamespace
+    calls=[];w=window
+    w.engine=SimpleNamespace(drain=lambda enabled=True:calls.append(enabled),report_update=lambda s:None,stop_requested=False)
+    try:
+        w.prepare_install(Path('/tmp/atlas-teste.deb'))
+        assert calls==[True] and w.install_pending and 'Aguardando finalização' in w.update_status.text()
+        w.cancel_update()
+        assert calls==[True,False] and w.install_pending is None
+    finally:w.engine=None;w.set_controls()
+
+
+def test_reiniciar_aplicativo_espera_processo_anterior(window,monkeypatch):
+    from atlas_worker.gui import app as module
+    w=window;calls=[]
+    original=Path.is_file
+    monkeypatch.setattr(Path,'is_file',lambda p:True if str(p)=='/usr/bin/atlas-coletor' else original(p))
+    monkeypatch.setattr(module.QProcess,'startDetached',lambda exe,args:calls.append((exe,args)) or (True,12345))
+    monkeypatch.setattr(w,'close',lambda:None)
+    w.restart_application()
+    assert calls[0][0]=='/usr/bin/atlas-coletor' and '--restart-after' in calls[0][1]
+    assert '--env' in calls[0][1] and str(w.store.path) in calls[0][1]
+
+
+def test_verificacao_automatica_sem_instalar(window,monkeypatch):
+    w=window;calls=[]
+    monkeypatch.setattr(w,'check_updates',lambda:calls.append('consulta'))
+    assert w.update_timer.interval()==6*60*60*1000
+    w.automatic_check();assert calls==['consulta'] and w.install_process is None
+
+@pytest.mark.parametrize('size',[(1100,700),(1180,970)])
+def test_painel_cabe_sem_rolagem_em_alturas_usuais(window,app,size):
+    w=window;w.resize(*size)
+    w.apply_snapshot({'connected':True,'last_contact':'agora','received':1,'completed':0,'errors':0,'active':1,'uptime':12,'read':120,'found':100,'sent':80,'service':'Coletando','tasks':[{'id':7,'fonte':'DJEN','alvo':'Banco Exemplo','periodo':'01/11/2026 até 07/11/2026','fase':'Consultando DJEN','paginas':2,'lidos':120,'encontrados':100,'confirmados':80}]})
+    app.processEvents()
+    assert w.dashboard_scroll.verticalScrollBar().maximum()==0
+    assert w.dashboard_scroll.horizontalScrollBar().maximum()==0
+    assert all(label.visibleRegion().isEmpty() is False for label in w.metric_labels.values())
+
+
+def test_falha_reinicio_nao_fecha_janela(window,monkeypatch):
+    from atlas_worker.gui import app as module
+    w=window;original=Path.is_file
+    monkeypatch.setattr(Path,'is_file',lambda p:True if str(p)=='/usr/bin/atlas-coletor' else original(p))
+    monkeypatch.setattr(module.QProcess,'startDetached',lambda *a:(False,-1))
+    w.restart_application()
+    assert not w.close_pending and 'Não foi possível reiniciar' in w.update_status.text()

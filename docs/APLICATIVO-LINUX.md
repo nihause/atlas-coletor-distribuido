@@ -1,3 +1,5 @@
+> Atualização 0.2.2: consulte [atualizações e publicação](ATUALIZACOES.md). Este guia substitui as instruções anteriores de atualização por simples checksum/abertura manual.
+
 # Aplicativo gráfico Atlas para Ubuntu
 
 ## Instalar sem terminal
