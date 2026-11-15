@@ -142,7 +142,7 @@ class Window(QMainWindow):
     def build_dashboard(self):
         outer = self.page("Painel")
         scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        content = QWidget(); content.setObjectName("surface"); layout = QVBoxLayout(content); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(8)
+        content = QWidget(); content.setObjectName("surface"); layout = QVBoxLayout(content); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(6)
         self.dashboard_scroll = scroll; scroll.setWidget(content); outer.addWidget(scroll)
         activity = QGroupBox("O que está sendo buscado agora"); activity_box = QVBoxLayout(activity)
         self.task_details = QLabel("Nenhuma tarefa em execução. Conecte para receber trabalho do Radar.")
@@ -161,8 +161,8 @@ class Window(QMainWindow):
             grid.addWidget(QLabel(name), row // 2, (row % 2)*2); grid.addWidget(field, row // 2, (row % 2)*2+1)
         layout.addWidget(connection)
         metrics = QGridLayout(); self.metric_labels = {}
-        for i, (key, label) in enumerate([("received", "Tarefas recebidas"), ("completed", "Concluídas"), ("errors", "Com erro"), ("active", "Em execução"), ("uptime", "Tempo de atividade"), ("read", "Itens lidos na fonte"), ("found", "Selecionados para envio"), ("sent", "Confirmados nesta execução")]):
-            group = QWidget(); box = QVBoxLayout(group); box.setContentsMargins(8, 3, 8, 3); box.setSpacing(2)
+        for i, (key, label) in enumerate([("received", "Tarefas recebidas"), ("completed", "Concluídas"), ("errors", "Com erro"), ("active", "Em execução"), ("uptime", "Tempo de atividade"), ("read", "Itens lidos na fonte"), ("found", "Itens selecionados"), ("sent", "Itens confirmados")]):
+            group = QWidget(); box = QVBoxLayout(group); box.setContentsMargins(8, 2, 8, 2); box.setSpacing(1)
             caption=QLabel(label); caption.setWordWrap(True); caption.setMinimumWidth(0); box.addWidget(caption)
             value = QLabel("0" if key != "uptime" else "00:00:00"); value.setObjectName("metric"); value.setMinimumHeight(30)
             box.addWidget(value); metrics.addWidget(group, i // 4, i % 4); self.metric_labels[key] = value
