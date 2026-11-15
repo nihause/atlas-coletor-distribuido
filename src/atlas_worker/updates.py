@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
-from .release_manifest import verify_manifest, verify_package, platform_arch
+from .release_manifest import verify_manifest, verify_package, platform_target
 from packaging.version import InvalidVersion, Version
 
 REPO = "nihause/atlas-coletor-distribuido"
@@ -73,8 +73,8 @@ class ReleaseClient:
             return response
         raise ValueError("Redirecionamentos excessivos ao buscar atualização.")
 
-    async def latest(self, current: str, *, machine=None, os_release=None) -> Release | None:
-        arch = platform_arch(machine, os_release)
+    async def latest(self, current: str, *, machine=None, os_release=None, system=None) -> Release | None:
+        os_name, arch = platform_target(machine, os_release, system)
         payload = (await self.request(API + "/releases/latest")).json()
         try:
             version = Version(str(payload["tag_name"]).removeprefix("v"))
@@ -89,12 +89,13 @@ class ReleaseClient:
             if not result or not re.fullmatch(re.escape(API) + r"/releases/assets/[0-9]+", str(result.get("url", ""))):
                 raise ValueError("Release sem manifesto assinado ou pacote oficial compatível.")
             return result
-        raw = (await self.request(str(asset("manifest.json")["url"]), "application/octet-stream")).content
-        signature = (await self.request(str(asset("manifest.sig")["url"]), "application/octet-stream")).content
+        manifest_name = "manifest-windows" if os_name == "windows" else "manifest"
+        raw = (await self.request(str(asset(manifest_name+".json")["url"]), "application/octet-stream")).content
+        signature = (await self.request(str(asset(manifest_name+".sig")["url"]), "application/octet-stream")).content
         manifest = verify_manifest(raw, signature)
         if Version(manifest['version']) != version:
             raise ValueError("Versão do manifesto diverge da tag oficial.")
-        package = next((p for p in manifest['packages'] if p['arch'] == arch), None)
+        package = next((p for p in manifest['packages'] if p['arch'] == arch and p['os'] == os_name), None)
         if not package:
             raise ValueError("Release sem pacote compatível com esta arquitetura.")
         entry = asset(package['name'])
@@ -103,7 +104,7 @@ class ReleaseClient:
                        raw, signature, current, package['size'])
 
     async def download(self, release: Release, directory: Path, progress=None) -> Path:
-        if not re.fullmatch(r"atlas-coletor_[0-9A-Za-z.+-]+_ubuntu24\.04_(amd64|arm64)\.deb", release.name):
+        if not re.fullmatch(r"atlas-coletor_[0-9A-Za-z.+-]+_(ubuntu24\.04_(amd64|arm64)\.deb|windows_amd64\.exe)", release.name):
             raise ValueError("Nome de pacote inválido.")
         manifest = verify_manifest(release.manifest, release.signature)
         package = next((p for p in manifest['packages'] if p['name'] == release.name), None)
@@ -131,8 +132,8 @@ class ReleaseClient:
             target = directory / release.name
             os.replace(tmp, target)
             from .config_store import atomic_private
-            atomic_private(target.with_suffix('.deb.manifest.json'), release.manifest.decode())
-            atomic_private(target.with_suffix('.deb.manifest.sig'), release.signature.decode())
+            atomic_private(target.with_suffix(target.suffix+'.manifest.json'), release.manifest.decode())
+            atomic_private(target.with_suffix(target.suffix+'.manifest.sig'), release.signature.decode())
             return target
         finally:
             await response.aclose()

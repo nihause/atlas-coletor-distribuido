@@ -34,7 +34,7 @@ def test_env_roundtrip_preserva_extras_e_permissoes(tmp_path):
     assert cfg.worker_token.get_secret_value() == token == loaded['WORKER_TOKEN']
     assert cfg.task_types == 'djen_janela' and cfg.request_timeout == 15
     assert loaded['CUSTOM_VALUE'] == 'opção anterior'
-    assert path.stat().st_mode & 0o777 == 0o600
+    if os.name != 'nt': assert path.stat().st_mode & 0o777 == 0o600
     store.save({'MAX_CONCURRENCY': '4'})
     assert store.load()['WORKER_TOKEN'] == token
     assert store.load()['CUSTOM_VALUE'] == 'opção anterior'
@@ -113,6 +113,7 @@ def test_logs_incluem_tarefa_e_removem_segredo_de_excecao():
 
 def test_autostart_nao_toca_config_e_preserva_argumentos(tmp_path, monkeypatch):
     from atlas_worker.gui.desktop import set_autostart, autostart_path
+    monkeypatch.setattr("atlas_worker.gui.desktop.platform.system", lambda: "Linux")
     monkeypatch.setenv('XDG_CONFIG_HOME',str(tmp_path))
     path = tmp_path / 'pasta com espaço' / '.env'
     set_autostart(True,path)

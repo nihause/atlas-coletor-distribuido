@@ -17,6 +17,7 @@ class FileLock:
         root = default_state_dir() / "locks"
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.path = root / (hashlib.sha256(key.encode()).hexdigest() + ".lock")
+        self.install_mutex = None
         self.file = None
 
     def acquire(self):
@@ -30,6 +31,8 @@ class FileLock:
                     self.file.write(b"0"); self.file.flush()
                 self.file.seek(0)
                 msvcrt.locking(self.file.fileno(), msvcrt.LK_NBLCK, 1)
+                from .windows_runtime import installation_mutex
+                self.install_mutex = installation_mutex()
             else:
                 import fcntl
                 fcntl.flock(self.file, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -39,6 +42,9 @@ class FileLock:
         return self
 
     def close(self):
+        if self.install_mutex:
+            from .windows_runtime import close_mutex
+            close_mutex(self.install_mutex); self.install_mutex=None
         if self.file:
             self.file.close(); self.file = None
 

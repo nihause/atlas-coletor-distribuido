@@ -24,25 +24,38 @@ def verify_manifest(raw: bytes, signature: bytes, *, public_key=None) -> dict:
         if version.is_prerelease or version.is_devrelease or version.local: raise ValueError()
         if not data['packages'] or len(data['packages'])>4: raise ValueError()
         for p in data['packages']:
-            if p['os']!='ubuntu24.04' or p['arch'] not in ('amd64','arm64'): raise ValueError()
-            if p['name']!=f"atlas-coletor_{version}_ubuntu24.04_{p['arch']}.deb": raise ValueError()
+            if p['os']=='ubuntu24.04' and p['arch'] in ('amd64','arm64'):
+                name=f"atlas-coletor_{version}_ubuntu24.04_{p['arch']}.deb"
+            elif p['os']=='windows' and p['arch']=='amd64':
+                name=f"atlas-coletor_{version}_windows_amd64.exe"
+            else: raise ValueError()
+            if p['name']!=name: raise ValueError()
             if not re.fullmatch('[a-f0-9]{64}',p['sha256']) or not 0<p['size']<=1024**3: raise ValueError()
         return data
     except (InvalidSignature,KeyError,ValueError,TypeError,InvalidVersion) as exc:
         raise ValueError('Assinatura ou manifesto oficial inválido. Atualização bloqueada.') from exc
 
-def platform_arch(machine=None, os_release=None):
-    distro=os_release if os_release is not None else platform.freedesktop_os_release()
-    arch={'x86_64':'amd64','aarch64':'arm64'}.get(machine or platform.machine())
-    if distro.get('ID')!='ubuntu' or distro.get('VERSION_ID')!='24.04' or not arch:
-        raise ValueError('A atualização por pacote requer Ubuntu 24.04 e arquitetura compatível.')
-    return arch
+def platform_target(machine=None, os_release=None, system=None):
+    # os_release explícito permite testar Linux em um runner Windows sem mentir sobre o host.
+    host=system or ('Linux' if os_release is not None else platform.system())
+    arch={'x86_64':'amd64','AMD64':'amd64','aarch64':'arm64','ARM64':'arm64'}.get(machine or platform.machine())
+    if host=='Windows':
+        if arch!='amd64': raise ValueError('O instalador Windows requer arquitetura x64.')
+        return 'windows',arch
+    distro=os_release if os_release is not None else (platform.freedesktop_os_release() if host=='Linux' else {})
+    if host!='Linux' or distro.get('ID')!='ubuntu' or distro.get('VERSION_ID')!='24.04' or not arch:
+        raise ValueError('A atualização requer Windows x64 ou Ubuntu 24.04 e arquitetura compatível.')
+    return 'ubuntu24.04',arch
 
-def verify_package(path: Path, raw: bytes, signature: bytes, current: str, *, machine=None, os_release=None):
+
+def platform_arch(machine=None, os_release=None):
+    return platform_target(machine, os_release)[1]
+
+def verify_package(path: Path, raw: bytes, signature: bytes, current: str, *, machine=None, os_release=None, system=None):
     data=verify_manifest(raw,signature)
     if Version(data['version'])<=Version(current): raise ValueError('Downgrade ou reinstalação não autorizada.')
-    arch=platform_arch(machine,os_release)
-    package=next((p for p in data['packages'] if p['name']==path.name and p['arch']==arch),None)
+    os_name,arch=platform_target(machine,os_release,system)
+    package=next((p for p in data['packages'] if p['name']==path.name and p['arch']==arch and p['os']==os_name),None)
     if not package or path.stat().st_size!=package['size']: raise ValueError('Pacote incompatível ou tamanho inválido.')
     digest=hashlib.sha256()
     with path.open('rb') as f:

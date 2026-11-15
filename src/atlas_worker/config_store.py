@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import platform
 import tempfile
 from pathlib import Path
 
@@ -16,6 +17,10 @@ DEFAULT_API = "https://justisoft.com.br/radar/api/v1"
 
 
 def config_path() -> Path:
+    if platform.system() == 'Windows' and 'XDG_CONFIG_HOME' not in os.environ:
+        legacy=Path.home()/'.config'/'atlas-worker'/'.env'
+        if legacy.is_file(): return legacy
+        return Path(os.environ.get('APPDATA',str(Path.home()/'AppData'/'Roaming')))/'atlas-worker'/'.env'
     return Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "atlas-worker" / ".env"
 
 

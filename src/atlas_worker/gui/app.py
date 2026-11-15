@@ -7,6 +7,8 @@ import logging
 import os
 import time
 import subprocess
+import platform
+import psutil
 import socket
 import sys
 from datetime import datetime
@@ -197,7 +199,7 @@ class Window(QMainWindow):
             else: form.addRow(label, field)
         self.path_label = QLabel(); self.path_label.setWordWrap(True); self.path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         form.addRow("Arquivo local (permissão 600)", self.path_label)
-        self.autostart = QCheckBox("Conectar automaticamente ao entrar no Ubuntu")
+        self.autostart = QCheckBox("Conectar automaticamente ao entrar no sistema")
         self.autostart.setChecked(autostart_path().exists()); self.autostart.toggled.connect(self.change_autostart)
         form.addRow(self.autostart)
         scroll.setWidget(content); layout.addWidget(scroll)
@@ -229,7 +231,7 @@ class Window(QMainWindow):
         self.update_progress = QProgressBar(); self.update_progress.setRange(0,100); layout.addWidget(self.update_progress)
         self.github_token = QLineEdit(); self.github_token.setEchoMode(QLineEdit.EchoMode.Password); self.github_token.setPlaceholderText("Token GitHub opcional enquanto o repositório for privado; público dispensa token")
         layout.addWidget(self.github_token)
-        note = QLabel("Pacotes oficiais verificados com assinatura Ed25519 e SHA-256. A instalação só começa com sua autorização e preserva a configuração."); note.setWordWrap(True); layout.addWidget(note)
+        note = QLabel("Pacotes oficiais para Windows e Ubuntu, verificados com assinatura Ed25519 e SHA-256. A instalação só começa com sua autorização e preserva a configuração."); note.setWordWrap(True); layout.addWidget(note)
         row = QHBoxLayout()
         self.check_updates_btn = self.button("Verificar atualizações", self.check_updates)
         self.download_btn = self.button("Baixar atualização", self.download_update); self.download_btn.setEnabled(False)
@@ -418,8 +420,8 @@ class Window(QMainWindow):
             self.autostart.blockSignals(True); self.autostart.setChecked(False); self.autostart.blockSignals(False); return
         try:
             set_autostart(enabled, self.store.path)
-            self.show_message("Inicialização automática ativada para sua sessão Ubuntu." if enabled else "Inicialização automática desativada.")
-        except OSError as exc: self.config_error(exc)
+            self.show_message("Inicialização automática ativada para sua sessão." if enabled else "Inicialização automática desativada.")
+        except (OSError, subprocess.SubprocessError) as exc: self.config_error(exc)
 
     def load_recent_logs(self, state_dir):
         try:
@@ -531,7 +533,7 @@ class Window(QMainWindow):
 
     def update_application(self):
         if not self.latest or self.jobs: return
-        if QMessageBox.question(self,"Atualizar Atlas","Instalar a versão oficial? As tarefas atuais terminarão antes da instalação. O Ubuntu pedirá autorização administrativa. Ao concluir, o Atlas reiniciará.") != QMessageBox.StandardButton.Yes: return
+        if QMessageBox.question(self,"Atualizar Atlas","Instalar a versão oficial? As tarefas atuais terminarão antes da instalação. O instalador pedirá a confirmação necessária. Ao concluir, o Atlas reiniciará.") != QMessageBox.StandardButton.Yes: return
         if self.downloaded_package: self.prepare_install(self.downloaded_package)
         else: self.download_update(install=True)
 
@@ -552,6 +554,15 @@ class Window(QMainWindow):
 
     def open_installer(self, path):
         self.cancel_update_btn.hide()
+        if platform.system()=='Windows':
+            from ..windows_runtime import launch_update
+            try:
+                launch_update(Path(path),self.store.path,self.resume_after_update)
+            except Exception as exc:
+                self.set_update_state('Não foi possível iniciar a atualização Windows: '+type(exc).__name__)
+                return
+            self.close_pending=True; self.close()
+            return
         if not Path('/opt/atlas-coletor/atlas-coletor').is_file():
             self.set_update_state("Instalação gráfica disponível no Atlas instalado pelo .deb oficial.")
             return
@@ -581,7 +592,7 @@ class Window(QMainWindow):
 
     def restart_application(self):
         if self.engine or self.jobs or self.install_process: return
-        executable = '/usr/bin/atlas-coletor'
+        executable = sys.executable if platform.system()=='Windows' and getattr(sys,'frozen',False) else '/usr/bin/atlas-coletor'
         if not Path(executable).is_file():
             self.set_update_state("Reinício automático disponível no aplicativo instalado."); return
         args = ['--env',str(self.store.path),'--restart-after',str(os.getpid())]
@@ -617,8 +628,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.restart_after:
         for _ in range(300):
-            try: os.kill(args.restart_after, 0)
-            except ProcessLookupError: break
+            if not psutil.pid_exists(args.restart_after): break
             time.sleep(0.1)
         else: return 6
     app = QApplication([sys.argv[0]])

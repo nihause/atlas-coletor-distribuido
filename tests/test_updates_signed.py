@@ -36,7 +36,7 @@ async def test_download_assinado_com_progresso_sem_vazar_token(signed,tmp_path):
         release=await latest(c);assert release.version=='0.3.0' and release.notes=='Melhorias da versão'
         path=await c.download(release,tmp_path,lambda a,b:progress.append((a,b)))
         assert path.read_bytes()==signed.package and progress[-1]==(len(signed.package),len(signed.package))
-        trust.verify_package(path,path.with_suffix('.deb.manifest.json').read_bytes(),path.with_suffix('.deb.manifest.sig').read_bytes(),'0.2.2')
+        trust.verify_package(path,path.with_suffix('.deb.manifest.json').read_bytes(),path.with_suffix('.deb.manifest.sig').read_bytes(),'0.2.2',machine='x86_64',os_release={'ID':'ubuntu','VERSION_ID':'24.04'})
         release.sha256='0'*64
         with pytest.raises(ValueError,match='Manifesto'):await c.download(release,tmp_path)
     finally:await c.close()
@@ -102,7 +102,10 @@ def test_instalacao_preserva_env_e_confirma_versao(signed,tmp_path,monkeypatch):
     package=tmp_path/signed.name;package.write_bytes(signed.package)
     package.with_suffix('.deb.manifest.json').write_bytes(signed.raw);package.with_suffix('.deb.manifest.sig').write_bytes(signed.signature)
     env=tmp_path/'.env';env.write_text('CONFIGURACAO=preservada\n');before=env.read_bytes()
-    monkeypatch.setattr('os.geteuid',lambda:0);calls=[]
+    monkeypatch.setattr('os.geteuid',lambda:0,raising=False)
+    monkeypatch.setattr(trust.platform,'system',lambda:'Linux')
+    monkeypatch.setattr(trust.platform,'freedesktop_os_release',lambda:{'ID':'ubuntu','VERSION_ID':'24.04'},raising=False)
+    calls=[]
     def run(args,**kw):
         calls.append(args)
         if 'dpkg-query' in args[0]:return SimpleNamespace(stdout='0.3.0' if any('apt-get'==Path(c[0]).name for c in calls) else '0.2.2')
@@ -124,4 +127,4 @@ def test_pacote_incompativel_e_downgrade_bloqueados(signed,tmp_path):
     with pytest.raises(ValueError,match='incompatível'):
         trust.verify_package(path,signed.raw,signed.signature,'0.2.2',machine='aarch64',os_release={'ID':'ubuntu','VERSION_ID':'24.04'})
     with pytest.raises(ValueError,match='Downgrade'):
-        trust.verify_package(path,signed.raw,signed.signature,'0.3.0')
+        trust.verify_package(path,signed.raw,signed.signature,'0.3.0',machine='x86_64',os_release={'ID':'ubuntu','VERSION_ID':'24.04'})

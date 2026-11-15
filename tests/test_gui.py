@@ -61,7 +61,7 @@ def test_interface_mascara_chave_salva_e_gera_nova_sem_apagar(window, app, monke
     assert w.fields['WORKER_TOKEN'].echoMode() == QLineEdit.EchoMode.Password
     w.fields['WORKER_NAME'].setText('coletor-grafico'); w.save_btn.click()
     assert w.store.load()['WORKER_NAME'] == 'coletor-grafico'
-    assert w.store.path.stat().st_mode & 0o777 == 0o600
+    if os.name != 'nt': assert w.store.path.stat().st_mode & 0o777 == 0o600
     original = w.store.path.read_bytes()
     monkeypatch.setattr(QMessageBox,'question',lambda *a,**kw:QMessageBox.StandardButton.Yes)
     w.new_btn.click()
