@@ -1,3 +1,5 @@
+> Versão atual: [0.2.3](https://github.com/nihause/atlas-coletor-distribuido/releases/tag/v0.2.3), com chave pública DataJud preenchida automaticamente.
+
 ## Distribuição oficial 0.2.2
 
 Repositório público: https://github.com/nihause/atlas-coletor-distribuido.
@@ -10,7 +12,7 @@ A publicação oficial usa a tag `v0.2.2` na `main`, com testes, auditoria, empa
 
 ## Instalar sem terminal
 
-1. Obtenha `atlas-coletor_0.2.2_ubuntu24.04_amd64.deb` e o respectivo `.sha256` na versão publicada no GitHub ou no pacote fornecido para revisão. O repositório e o Release são públicos; nenhum token GitHub é necessário.
+1. Obtenha `atlas-coletor_0.2.3_ubuntu24.04_amd64.deb` e o respectivo `.sha256` na versão publicada no GitHub ou no pacote fornecido para revisão. O repositório e o Release são públicos; nenhum token GitHub é necessário.
 2. No Ubuntu 24.04 de 64 bits, abra o `.deb` no instalador de pacotes do sistema (menu de contexto → abrir com instalador). O Ubuntu poderá solicitar autorização administrativa para instalar dependências. Se o sistema não tiver um aplicativo associado a `.deb`, será necessário instalar um gerenciador gráfico de pacotes.
 3. No menu de aplicativos, abra **ATLAS — Coletor Distribuído**.
 4. Em **Configuração**, informe a URL `https://justisoft.com.br/radar/api/v1`, o identificador cadastrado no Radar e a chave de API individual com permissão Ingestão. O cliente acrescenta `/coletores.php/<rota>`; não acrescente essa rota na URL base.

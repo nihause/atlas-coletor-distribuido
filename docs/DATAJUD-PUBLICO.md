@@ -9,3 +9,5 @@ Settings usa o padrão quando DATAJUD_API_KEY está ausente, vazio ou somente co
 O CNJ pode alterar a chave pública. O campo continua editável para substituição, sem atualização silenciosa por scraping e sem alterar limites das fontes. Não houve consulta/coleta real ao DataJud para este ajuste; a chave foi obtida na documentação oficial.
 
 Atualize 0.2.2 pela aba Atualizações para obter a correção 0.2.3. Instalações antigas precisam primeiro obter o atualizador assinado conforme ATUALIZACOES.md.
+
+Release validado: https://github.com/nihause/atlas-coletor-distribuido/releases/tag/v0.2.3. O atualizador consultou e baixou sem token, simulando versão instalada 0.2.2, e validou a assinatura Ed25519 e SHA-256. Actions da tag: 43728508204, sucesso. SHA-256 do pacote: `4586aaad44d30c3eb087af80f7f91a9e585457a2a328e8d33318d504b36a8cac`.

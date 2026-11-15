@@ -1,6 +1,6 @@
 # Histórico de versões
 
-## 0.2.3 — chave pública DataJud
+## 0.2.3 — publicada em 15/11/2026
 
 Preenchimento automático da chave pública oficial do CNJ para valores ausentes/vazios, preservando chaves próprias. Mesma regra na GUI e CLI; sem mudança na autenticação Radar ou contrato.
 
