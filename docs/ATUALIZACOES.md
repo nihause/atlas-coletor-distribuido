@@ -1,3 +1,9 @@
+## Distribuição oficial 0.2.2
+
+Repositório público: https://github.com/nihause/atlas-coletor-distribuido.
+
+A publicação oficial usa a tag `v0.2.2` na `main`, com testes, auditoria, empacotamento e assinatura pelo GitHub Actions. O Release inclui `.deb`, SHA-256, `manifest.json` e `manifest.sig`. Consulte as [notas da versão](releases/v0.2.2.md) e o registro de publicação no LOG-IA para o resultado efetivo.
+
 # Atualização gráfica e publicação oficial — Atlas 0.2.2
 
 ## Uso no computador coletor

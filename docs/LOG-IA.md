@@ -1,3 +1,10 @@
+## 2026-11-15 · Codex / GPT-6 · Preparação da publicação pública 0.2.2 autorizada
+- **Pedido:** publicar efetivamente v0.2.2 pelo Actions e validar os artefatos públicos e o atualizador, conforme missão anexada.
+- **Causa / motivo:** repositório já público, PR #1 integrado e ausência de tag/Release anterior confirmados pela API. Missão autoriza a primeira publicação; não é necessária nova confirmação. HEAD anterior tinha [skip ci], portanto a tag apontará para este novo commit de documentação sem instrução de pular CI.
+- **Mudou:** README, manuais de instalação/atualização, CHANGELOG e `docs/releases/v0.2.2.md` com distribuição pública, notas e instalação no consulta. Código e chave de assinatura mantidos; versão 0.2.2 e contrato 1 consistentes entre metadados, GUI e heartbeat.
+- **Testado:** conferência Git/API do repositório, main, PR e ausência de Release; suíte/auditorias repetidas antes da tag e resultados finais registrados na entrada posterior. NÃO testado: instalação administrativa no consulta, coleta real, Windows e atualização completa entre duas versões instaladas.
+- **Atenção:** publicar somente após testes/auditorias aprovados; workflow de tag deve gerar, assinar e publicar, sem sobrescrever Release. Sem sudo, SSH, alteração de configuração remota, nova chave ou push forçado. Resultado final será registrado após conferir os artefatos publicados.
+
 ## 2026-11-15 · Codex / GPT-6 · PR integrado e pacote 0.2.2 autenticado
 - **Pedido:** executar a missão de atualização gráfica/Releases e entregar a janela sem ocultar indicadores.
 - **Causa / motivo:** registrar a validação final antes da confirmação exigida para visibilidade e primeira publicação públicas.

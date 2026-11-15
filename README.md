@@ -1,3 +1,5 @@
+> Distribuição oficial: [Releases públicos](https://github.com/nihause/atlas-coletor-distribuido/releases). Para Ubuntu 24.04 amd64. Na versão 0.2.1, instale o 0.2.2 uma vez para obter o atualizador com assinatura; mantenha seu .env e sua chave Radar.
+
 > Atualização 0.2.2: consulte [atualizações e publicação](docs/ATUALIZACOES.md). Este guia substitui as instruções anteriores de atualização por simples checksum/abertura manual.
 
 # atlas-coletor-distribuido
