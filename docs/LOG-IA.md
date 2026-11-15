@@ -1,3 +1,10 @@
+## 2026-11-15 · Codex / GPT-6 · Progresso visível e identificação do coletor
+- **Pedido:** mostrar o que busca, quantos itens encontrou, o nome do coletor na fila, estado do botão e preparar atualização/commit.
+- **Causa / motivo:** DJEN pagina antes de enviar o primeiro lote e o painel não mostrava essa etapa; fila não identificava executor remoto. Consulta nova medida em 2,18 ms, duas reservas ativas, índice de coletor, sem varrer processos.
+- **Mudou:** `progress.py`, worker, collectors, heartbeat e metrics: telemetria segura por tarefa; GUI: alvo, contadores e estados do botão; versão 0.2.1; testes de progresso/Qt; README e `docs/PROGRESSO-COLETA.md`; patch da integração PHP em `integracoes/radar/`.
+- **Testado:** Atlas: 81 testes aprovados com Qt offscreen; Radar: 112 verificações aprovadas em progresso/servidor/administração/Authorization, com tabelas temporárias. Progresso não altera lease, propriedade nem contadores reais; confirmação somente após resposta. NÃO testado: instalação PC1, coleta real e desktop interativo do usuário.
+- **Atenção:** PHP ativo neste servidor; Atlas requer instalar pacote 0.2.1 na outra ponta, mantendo configuração/chave. Sem sudo, migração, mudança de limites ou descoberta geral. Radar sem Git: patch de integração registrado no repositório Atlas. Guia de operação citado acima; contrato 1 preservado.
+
 ## 2026-11-15 · Codex / GPT-6 · Sanitização estruturada dos logs e diagnóstico
 - **Pedido:** concluir o aplicativo gráfico com logs e exportação sem credenciais.
 - **Causa / motivo:** reprodução local confirmou que aplicar regex de remoção de segredos sobre JSON já serializado podia remover aspas de uma mensagem como `WORKER_TOKEN=***`, tornando o JSON inválido.

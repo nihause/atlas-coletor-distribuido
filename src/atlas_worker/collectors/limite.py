@@ -27,8 +27,9 @@ class Resposta:
 
 
 class Limitador:
-    def __init__(self, client: RadarClient, fonte: str, sleep: Callable[[float], Awaitable] = asyncio.sleep, max_espera: float = 300.0):
+    def __init__(self, client: RadarClient, fonte: str, sleep: Callable[[float], Awaitable] = asyncio.sleep, max_espera: float = 300.0, progresso=None):
         self.client, self.fonte, self._sleep, self.max_espera = client, fonte, sleep, max_espera
+        self.progresso = progresso
         self._ok_sem_relato = 0
         self.requisicoes = 0
 
@@ -42,12 +43,16 @@ class Limitador:
             total += espera
             if total > self.max_espera:
                 raise FonteIndisponivel(f"{self.fonte}: espera acumulada acima de {self.max_espera:.0f}s ({v.get('motivo', 'limite')})")
+            if self.progresso:
+                self.progresso(fase=f"Aguardando limite global de {self.fonte} ({espera:.0f} s)")
             await self._sleep(min(espera, 60.0))
             if not v.get("pausa"):
                 return   # a vaga foi reservada para este instante: pode ir
 
     async def requisitar(self, fazer: Callable[[], Awaitable[Resposta]]) -> Resposta:
         await self._aguardar_vaga()
+        if self.progresso:
+            self.progresso(fase=f"Consultando {self.fonte.upper()}")
         self.requisicoes += 1
         t0 = time.monotonic()
         try:

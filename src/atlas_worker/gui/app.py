@@ -126,6 +126,13 @@ class Window(QMainWindow):
         scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         content = QWidget(); content.setObjectName("surface"); layout = QVBoxLayout(content); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(14)
         scroll.setWidget(content); outer.addWidget(scroll)
+        activity = QGroupBox("O que está sendo buscado agora"); activity_box = QVBoxLayout(activity)
+        self.task_details = QLabel("Nenhuma tarefa em execução. Conecte para receber trabalho do Radar.")
+        self.task_details.setTextFormat(Qt.TextFormat.PlainText); self.task_details.setWordWrap(True)
+        self.task_details.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        activity_box.addWidget(self.task_details); layout.addWidget(activity)
+        self.recent_details = QLabel(""); self.recent_details.setWordWrap(True); self.recent_details.setTextFormat(Qt.TextFormat.PlainText)
+        layout.addWidget(self.recent_details)
         connection = QGroupBox("Este computador"); grid = QGridLayout(connection)
         self.connection = QLabel("Desconectado")
         self.service = QLabel("Parado")
@@ -135,7 +142,7 @@ class Window(QMainWindow):
             grid.addWidget(QLabel(name), row, 0); grid.addWidget(field, row, 1)
         layout.addWidget(connection)
         metrics = QGridLayout(); self.metric_labels = {}
-        for i, (key, label) in enumerate([("received", "Tarefas recebidas"), ("completed", "Concluídas"), ("errors", "Com erro"), ("active", "Em execução"), ("uptime", "Tempo de atividade")]):
+        for i, (key, label) in enumerate([("received", "Tarefas recebidas"), ("completed", "Concluídas"), ("errors", "Com erro"), ("active", "Em execução"), ("uptime", "Tempo de atividade"), ("read", "Itens lidos na fonte"), ("found", "Selecionados para envio"), ("sent", "Confirmados nesta execução")]):
             group = QGroupBox(label); box = QVBoxLayout(group)
             value = QLabel("0" if key != "uptime" else "00:00:00"); value.setObjectName("metric"); value.setMinimumHeight(44)
             box.addWidget(value); metrics.addWidget(group, i // 3, i % 3); self.metric_labels[key] = value
@@ -143,7 +150,7 @@ class Window(QMainWindow):
         note = QLabel("Os indicadores representam esta execução do aplicativo. O Radar mantém o histórico central das tarefas."); note.setWordWrap(True); note.setObjectName("subtitle"); layout.addWidget(note)
         actions = QHBoxLayout()
         self.start_btn = self.button("Conectar e iniciar", self.start_engine, True)
-        self.stop_btn = self.button("Desconectar", self.stop_engine); self.stop_btn.setEnabled(False)
+        self.stop_btn = self.button("Parar coleta", self.stop_engine); self.stop_btn.setEnabled(False)
         self.restart_btn = self.button("Reiniciar coletor", self.restart_engine); self.restart_btn.setEnabled(False)
         for btn in [self.start_btn, self.stop_btn, self.restart_btn]: actions.addWidget(btn)
         outer.addLayout(actions)
@@ -304,6 +311,7 @@ class Window(QMainWindow):
         for field in self.fields.values(): field.setEnabled(not active and not busy)
         self.autostart.setEnabled(not active and not busy)
         self.start_btn.setEnabled(not active and not busy)
+        self.start_btn.setText("Conectando…" if active else "Conectar e iniciar")
         self.stop_btn.setEnabled(active)
         self.restart_btn.setEnabled(active and not self.restart_pending)
         self.check_updates_btn.setEnabled(not busy)
@@ -328,10 +336,19 @@ class Window(QMainWindow):
         self.connection.setText("Conectado" if data["connected"] else "Desconectado")
         self.last_contact.setText(data["last_contact"]); self.service.setText(data["service"])
         for key, field in self.metric_labels.items():
-            value = data[key]
+            value = data.get(key, 0)
             field.setText(f"{value // 3600:02}:{value % 3600 // 60:02}:{value % 60:02}" if key == "uptime" else str(value))
         self.statusBar().showMessage(data["service"])
-        if data["connected"]: self.show_message("Coletor conectado. O Radar distribui as tarefas e controla os limites das fontes.")
+        tasks = data.get("tasks", [])
+        lines = []
+        for task in tasks:
+            lines.append(f"{task['fonte']} · tarefa #{task['id']} · {task['alvo']}\n{task['periodo']}\n{task['fase']} · {task['paginas']} páginas/consultas · {task['lidos']} lidos · {task['encontrados']} selecionados · {task['confirmados']} confirmados no Radar")
+        self.task_details.setText(sanitize("\n\n".join(lines) if lines else data.get("waiting", "Aguardando tarefas do Radar"), self.secrets))
+        self.recent_details.setText(sanitize("\n".join(f"Última tarefa #{t['id']}: {t['alvo']} · {t['fase']} · {t['confirmados']} confirmados" for t in data.get("recent", [])[:2]), self.secrets))
+        stopping = bool(self.engine and self.engine.stop_requested)
+        self.start_btn.setText("Parando coleta…" if stopping else (f"Coletando · {data['active']} tarefa(s)" if data["active"] else ("Coletor pausado" if data["service"] == "Pausado pelo Radar" else ("Aguardando tarefas" if data["connected"] else "Conectando ao Radar…"))))
+        if data["connected"]:
+            self.show_message(f"Coleta em andamento: {data['active']} tarefa(s) em execução." if tasks else data.get("waiting", "Conectado. Aguardando tarefas do Radar."))
 
     def engine_problem(self, result):
         self.last_problem = True
@@ -341,7 +358,7 @@ class Window(QMainWindow):
 
     def stop_engine(self):
         if self.engine:
-            self.service.setText("Encerrando com segurança…"); self.engine.stop(); self.stop_btn.setEnabled(False)
+            self.service.setText("Encerrando com segurança…"); self.engine.stop(); self.stop_btn.setEnabled(False); self.start_btn.setText("Parando coleta…")
 
     def restart_engine(self):
         if self.engine:
@@ -351,6 +368,7 @@ class Window(QMainWindow):
         engine = self.engine; self.engine = None
         if engine: engine.deleteLater()
         self.connection.setText("Desconectado"); self.service.setText("Parado"); self.metric_labels["active"].setText("0")
+        self.task_details.setText("Coleta parada. Conecte para receber novas tarefas.")
         self.set_controls()
         if not self.last_problem:
             self.show_message("Coletor desconectado. As tarefas confirmadas permanecem no Radar.")

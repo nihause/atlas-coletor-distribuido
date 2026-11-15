@@ -143,3 +143,30 @@ def test_logs_com_atribuicao_de_chave_preservam_json(window,app,tmp_path,monkeyp
     w.export_diagnostic()
     assert json.loads(output.read_text())['events'][0]['task_id']==3
     assert TOKEN not in output.read_text()
+
+
+def test_painel_mostra_alvo_contadores_e_botao_coletando(window,app):
+    from types import SimpleNamespace
+    w=window;w.engine=SimpleNamespace(stop_requested=False)
+    try:
+        w.set_controls()
+        w.apply_snapshot({'connected':True,'last_contact':'agora','received':1,'completed':0,'errors':0,'active':1,'uptime':12,'read':120,'found':100,'sent':80,'service':'Coletando','tasks':[{'id':7,'fonte':'DJEN','alvo':'Banco Exemplo','periodo':'2026-11-01 até 2026-11-07','fase':'Consultando DJEN','paginas':2,'lidos':120,'encontrados':100,'confirmados':80}]})
+        assert 'Banco Exemplo' in w.task_details.text() and '120 lidos' in w.task_details.text() and '80 confirmados' in w.task_details.text()
+        assert w.start_btn.text()=='Coletando · 1 tarefa(s)' and not w.start_btn.isEnabled()
+        assert w.metric_labels['read'].text()=='120'
+        w.apply_snapshot({'connected':True,'last_contact':'agora','received':1,'completed':1,'errors':0,'active':0,'uptime':13,'service':'Aguardando tarefas','tasks':[],'waiting':'Nenhuma tarefa disponível.'})
+        assert w.start_btn.text()=='Aguardando tarefas' and 'Nenhuma tarefa disponível.' in w.task_details.text()
+    finally:w.engine=None;w.set_controls()
+
+
+async def test_encerramento_publica_contadores_finais(cfg,app):
+    class Finito(Worker):
+        async def rodar(self,*args):
+            self.metrics.tarefas_concluidas=2
+            self.metrics.itens_enviados=45
+            self.parar.set()
+    def client(cfg,observer=None):return RadarClient(cfg,transport=httpx.MockTransport(lambda req:httpx.Response(200,json={'dados':{}})),observer=observer)
+    engine=EngineThread(cfg,client_factory=client,worker_factory=Finito)
+    values=[];engine.snapshot.connect(values.append)
+    await engine.execute()
+    assert values[-1]['completed']==2 and values[-1]['sent']==45

@@ -57,8 +57,9 @@ def aceita(filtro, item: dict) -> bool:
 
 
 class Djen:
-    def __init__(self, limitador: Limitador, http: httpx.AsyncClient, batch: int = 100):
+    def __init__(self, limitador: Limitador, http: httpx.AsyncClient, batch: int = 100, progresso=None):
         self.lim, self.http, self.batch = limitador, http, batch
+        self.progresso = progresso
         self.paginas = 0
         self.dividida = False
         self.total_itens = 0
@@ -90,6 +91,8 @@ class Djen:
         for pagina in range(1, MAX_PAGINAS + 1):
             j = await self._pagina({**base, "dataDisponibilizacaoInicio": de.isoformat(), "dataDisponibilizacaoFim": ate.isoformat(), "itensPorPagina": POR_PAGINA, "pagina": pagina})
             lote = j["items"]
+            if self.progresso:
+                self.progresso(fase="Lendo publicações do DJEN", paginas=self.paginas, lidos=len(lote))
             if pagina == 1 and int(j.get("count") or 0) >= LIMITE_COUNT and de != ate:   # fonte acusa volume alto: divide o período
                 self.dividida = True
                 out: list[dict] = []
@@ -121,6 +124,8 @@ class Djen:
                     continue
                 vistos.add(iid)
                 pronto.append({"q": q, "item": it})
+                if self.progresso:
+                    self.progresso(fase="Selecionando publicações do favorito", encontrados=1)
                 if len(pronto) >= self.batch:
                     yield self._chave(idx, pronto), pronto
                     idx, pronto = idx + 1, []

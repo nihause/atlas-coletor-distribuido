@@ -24,7 +24,7 @@ O limite de requisições às fontes (DJEN, DataJud) é **global**: o worker per
 
 ## Aplicativo gráfico no Ubuntu 24.04
 
-Abra o pacote **atlas-coletor_0.2.0_ubuntu24.04_amd64.deb** no instalador do Ubuntu. Depois, procure **ATLAS — Coletor Distribuído** no menu de aplicativos. Python e Qt acompanham o pacote.
+Abra o pacote **atlas-coletor_0.2.1_ubuntu24.04_amd64.deb** no instalador do Ubuntu. Depois, procure **ATLAS — Coletor Distribuído** no menu de aplicativos. Python e Qt acompanham o pacote.
 
 Na aba **Configuração**, informe o endereço `https://justisoft.com.br/radar/api/v1`, o nome e a chave individual criada em **Radar → Administração → Coletores**. Clique em **Testar conexão** e depois **Conectar e iniciar**. A tela mostra tarefas, conexão, produtividade e logs sem precisar de terminal. A chave DataJud tem campo próprio, caso este computador execute tarefas DataJud.
 
@@ -100,3 +100,5 @@ Documentação: [`docs/CONTRATO-API.md`](docs/CONTRATO-API.md) (rotas e contrato
 - Sem acesso ao MySQL; só API autenticada sobre HTTPS com certificado validado.
 - Sem contorno de CAPTCHA, bloqueio ou limite das fontes; só consultas oficiais e públicas, dentro do limite global.
 - Registros sigilosos (nível de sigilo > 0) não saem do computador.
+
+Progresso e atualização do PC1: [guia da versão 0.2.1](docs/PROGRESSO-COLETA.md).

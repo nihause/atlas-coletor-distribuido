@@ -13,13 +13,17 @@ log = logging.getLogger("atlas_worker.heartbeat")
 
 
 class Heartbeat:
-    def __init__(self, client: RadarClient, metrics: Metrics, intervalo: int, tarefa_atual: Callable[[], int | None], ao_receber: Callable[[dict], None], ao_perder_acesso: Callable[[], None]):
+    def __init__(self, client: RadarClient, metrics: Metrics, intervalo: int, tarefa_atual: Callable[[], int | None], ao_receber: Callable[[dict], None], ao_perder_acesso: Callable[[], None], progresso: Callable[[], list] | None = None):
         self.client, self.metrics, self.intervalo = client, metrics, intervalo
+        self.progresso = progresso
         self.tarefa_atual, self.ao_receber, self.ao_perder_acesso = tarefa_atual, ao_receber, ao_perder_acesso
 
     async def uma_vez(self) -> None:
         try:
-            cfg = await self.client.heartbeat({**self.metrics.snapshot(self.tarefa_atual()), "versao": __version__})
+            dados = {**self.metrics.snapshot(self.tarefa_atual()), "versao": __version__}
+            if self.progresso:
+                dados["progresso_tarefas"] = self.progresso()
+            cfg = await self.client.heartbeat(dados)
             self.ao_receber(cfg)
         except Unauthorized:
             log.error("a chave deste coletor não é mais aceita pelo servidor (revogada ou trocada)")

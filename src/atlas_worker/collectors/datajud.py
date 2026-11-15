@@ -19,8 +19,9 @@ class LoteIncompleto(Exception):
 
 
 class DataJud:
-    def __init__(self, limitador: Limitador, http: httpx.AsyncClient, api_key: str):
+    def __init__(self, limitador: Limitador, http: httpx.AsyncClient, api_key: str, progresso=None):
         self.lim, self.http, self.api_key = limitador, http, api_key
+        self.progresso = progresso
         self.consultas = 0
 
     async def _buscar(self, alias: str, cnjs: list[str]) -> list[dict]:
@@ -45,6 +46,8 @@ class DataJud:
         total = (j.get("hits") or {}).get("total")
         if hits is None or total is None or j.get("timed_out") or (j.get("_shards") or {}).get("failed"):
             raise LoteIncompleto("resposta do DataJud incompleta")
+        if self.progresso:
+            self.progresso(fase="Lendo registros do DataJud", paginas=self.consultas, lidos=len(hits))
         esperado = total.get("value") if isinstance(total, dict) else total
         incompleto = (esperado is not None and esperado > len(hits)) or (isinstance(total, dict) and total.get("relation", "eq") != "eq")
         if incompleto:
@@ -66,4 +69,6 @@ class DataJud:
                 achados.add(rec["numero_cnj"])
             elif rec and rec["numero_cnj"] in pedidos:
                 achados.add(rec["numero_cnj"])   # sigiloso: existe, mas não sai da máquina e não conta como "não localizado"
+        if self.progresso:
+            self.progresso(fase="Selecionando registros públicos", encontrados=len(regs))
         return regs, [c for c in p.cnjs if c not in achados]

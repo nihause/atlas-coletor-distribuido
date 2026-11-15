@@ -56,13 +56,17 @@ class EngineThread(QThread):
         if self.loop and self.worker:
             self.loop.call_soon_threadsafe(self.worker.parar.set)
 
-    async def _publish(self):
+    async def _publish(self, once=False):
         while True:
             w = self.worker
             self.snapshot.emit({"connected": self.connected and time.monotonic() - self.last_ok <= max(120, self.cfg.heartbeat_interval * 3), "last_contact": self.last_contact,
                                 "received": w.metrics.tarefas_recebidas, "completed": w.metrics.tarefas_concluidas,
                                 "errors": w.metrics.erros, "active": len(w.ativas), "uptime": int(time.time() - w.metrics.inicio),
-                                "service": "Encerrando com segurança" if w.parar.is_set() else ("Pausado pelo Radar" if w.pausado else "Em execução")})
+                                "read": w.metrics.itens_lidos, "found": w.metrics.itens_encontrados, "sent": w.metrics.itens_enviados,
+                                "tasks": [ctx.snapshot() for ctx in w.contextos.values()], "recent": list(w.recentes), "waiting": w.espera,
+                                "service": "Encerrando com segurança" if w.parar.is_set() else ("Pausado pelo Radar" if w.pausado else ("Coletando" if w.ativas else "Aguardando tarefas"))})
+            if once:
+                return
             await asyncio.sleep(1)
 
     async def execute(self):
@@ -79,6 +83,7 @@ class EngineThread(QThread):
                     self.problem.emit(classify(self.worker.erro_fatal))
         finally:
             self.connected = False
+            await self._publish(once=True)
             publisher.cancel()
             await asyncio.gather(publisher, return_exceptions=True)
             await client.aclose()
