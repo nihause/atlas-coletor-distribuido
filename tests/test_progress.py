@@ -30,7 +30,7 @@ async def test_progresso_djen_antes_do_primeiro_envio_e_heartbeat(cfg,mundo):
         ctx=w.contextos[1]
         assert ctx.lidos==100 and ctx.paginas==1 and ctx.itens_enviados==0
         assert ctx.snapshot()['alvo']=='Banco Exemplo'
-        assert '2026-11-01' in ctx.snapshot()['periodo']
+        assert '2026-11-03 até 2026-11-03' in ctx.snapshot()['periodo']
         assert tarefa.lease_token not in repr(ctx.snapshot()) and TOKEN not in repr(ctx.snapshot())
         await w.hb.uma_vez()
         hb=[body for rota,body in srv.chamadas if rota=='heartbeat'][-1]

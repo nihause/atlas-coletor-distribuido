@@ -8,6 +8,8 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import __version__
+
 
 def sanitize(text: str, secrets=()) -> str:
     for secret in sorted((s for s in secrets if s), key=len, reverse=True):
@@ -47,7 +49,7 @@ class JsonFormatter(logging.Formatter):
         message = record.getMessage()
         task = re.search(r"tarefa\s+(\d+)", message)
         return json.dumps({"time": datetime.fromtimestamp(record.created, timezone.utc).isoformat(), "level": record.levelname,
-                           "event": record.name, "message": message, "task_id": int(task[1]) if task else None,
+                           "event": record.name, "version": __version__, "message": message, "task_id": int(task[1]) if task else None,
                            "detail": record.exc_text or ""}, ensure_ascii=False)
 
 
@@ -69,6 +71,11 @@ def setup(level: str, state_dir: Path, secrets: list[str]) -> None:
         fh.setFormatter(JsonFormatter())
         fh.addFilter(red)
         root.addHandler(fh)
+        errors = logging.handlers.RotatingFileHandler(logdir / "erros.jsonl", maxBytes=10 * 2**20, backupCount=5, encoding="utf-8")
+        errors.setLevel(logging.ERROR)
+        errors.setFormatter(JsonFormatter())
+        errors.addFilter(red)
+        root.addHandler(errors)
     except OSError:
         root.warning("sem log em arquivo; usando só a saída padrão")
     logging.getLogger("httpx").setLevel(logging.WARNING)

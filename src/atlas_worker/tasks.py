@@ -26,7 +26,7 @@ class Filtro(_Estrito):
 
 
 # Só estes parâmetros de consulta ao DJEN são aceitos; o resto é descartado.
-_PARAMS_DJEN = {"siglaTribunal", "orgaoId", "numeroOab", "ufOab", "nomeAdvogado", "nomeParte"}
+_PARAMS_DJEN = {"siglaTribunal", "orgaoId", "numeroOab", "ufOab", "nomeAdvogado", "nomeParte", "meio"}
 
 
 class Consulta(_Estrito):

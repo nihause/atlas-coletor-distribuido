@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     radar_api_url: str
     worker_name: str
     worker_token: SecretStr
-    max_concurrency: int = Field(2, ge=1, le=8)
+    max_concurrency: int = Field(4, ge=1, le=8)
     heartbeat_interval: int = Field(30, ge=5, le=300)
     log_level: str = "INFO"
     task_types: str = "djen_janela,datajud_lote"

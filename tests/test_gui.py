@@ -228,3 +228,29 @@ def test_datajud_publico_preenchido_sem_sobrescrever(window):
     assert w.fields['DATAJUD_API_KEY'].text()==DATAJUD_PUBLIC_KEY
     values['DATAJUD_API_KEY']='chave-personalizada-ficticia';w.fill(values)
     assert w.fields['DATAJUD_API_KEY'].text()=='chave-personalizada-ficticia'
+
+
+def test_inicio_automatico_so_sem_interacao(window, app, monkeypatch):
+    w = window
+    chamadas = []
+    monkeypatch.setattr(w, 'start_engine', lambda: chamadas.append('iniciou'))
+    assert w.auto_start_timer.isActive()
+    w.start_after_idle()
+    assert chamadas == ['iniciou']
+    chamadas.clear()
+    w.auto_start_timer.start(10000)
+    QTest.mouseClick(w.technical_toggle, Qt.MouseButton.LeftButton)
+    assert not w.auto_start_timer.isActive()
+    assert chamadas == []
+
+
+def test_inicio_automatico_aguarda_operacao(window, monkeypatch):
+    w = window
+    chamadas = []
+    monkeypatch.setattr(w, 'start_engine', lambda: chamadas.append('iniciou'))
+    w.jobs.append(object())
+    try:
+        w.start_after_idle()
+        assert w.auto_start_timer.isActive() and not chamadas
+    finally:
+        w.jobs.clear()

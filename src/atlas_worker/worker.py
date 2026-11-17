@@ -233,6 +233,8 @@ class Worker:
             self.ativas.pop(tarefa.id, None)
 
     async def _reportar(self, ctx: Contexto, erro: str, *, retentavel: bool = True, sem_penalidade: bool = False) -> None:
+        if not sem_penalidade:
+            log.error("tarefa %s falhou (%s): %s", ctx.tarefa.id, ctx.tarefa.tipo, erro)
         try:
             await self.client.falhar(ctx.tarefa.id, ctx.tarefa.lease_token, erro, retentavel=retentavel, sem_penalidade=sem_penalidade)
         except ClientError as e:
@@ -279,7 +281,7 @@ class Worker:
             self.atualizar_progresso(ctx, fase="Lote confirmado pelo Radar")
             self.ck.salvar(ctx.tarefa.model_dump(mode="json"), ctx.lotes_ok)
         self.metrics.requisicoes["djen"] += limite.requisicoes
-        return {"itens_enviados": ctx.itens_enviados, "total_itens": d.total_itens, "paginas": d.paginas, "dividida": d.dividida, "duracao_s": int(time.monotonic() - ctx.inicio)}
+        return {"particoes_verificadas": True, "itens_enviados": ctx.itens_enviados, "total_itens": d.total_itens, "paginas": d.paginas, "dividida": d.dividida, "duracao_s": int(time.monotonic() - ctx.inicio)}
 
     async def _datajud(self, ctx: Contexto) -> dict:
         p = ctx.tarefa.datajud()

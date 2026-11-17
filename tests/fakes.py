@@ -44,7 +44,7 @@ class FakeRadar:
         self.coletores: set[str] = set()
 
     def adicionar_djen(self, tid: int, itens_esperados: int = 0, **params) -> None:
-        p = {"favorito": {"tipo": "parte", "ref_id": 1}, "de": "2026-11-01", "ate": "2026-11-07", "janela_dias": 7, "base_dias": 7,
+        p = {"favorito": {"tipo": "parte", "ref_id": 1}, "de": "2026-11-03", "ate": "2026-11-03", "janela_dias": 1, "base_dias": 1,
              "consultas": [{"params": {"nomeParte": "Banco Exemplo"}, "filtro": {"tipo": "parte", "termo_norm": "BANCO EXEMPLO"}}]}
         p.update(params)
         self.fila.append({"id": tid, "tipo": "djen_janela", "params": p})

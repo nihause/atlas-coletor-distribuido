@@ -23,7 +23,7 @@ def _djen(fontes, srv, r, batch=100):
 
 
 def _params(**kw):
-    p = {"favorito": {"tipo": "parte", "ref_id": 1}, "de": "2026-11-01", "ate": "2026-11-07",
+    p = {"favorito": {"tipo": "parte", "ref_id": 1}, "de": "2026-11-03", "ate": "2026-11-03",
          "consultas": [{"params": {"nomeParte": "Banco Exemplo"}, "filtro": {"tipo": "parte", "termo_norm": "BANCO EXEMPLO"}}]}
     p.update(kw)
     return ParamsDjenJanela.model_validate(p)
@@ -60,15 +60,13 @@ async def test_chave_do_lote_muda_se_o_conteudo_mudar():
     await cl.aclose()
 
 
-async def test_periodo_dividido_quando_a_fonte_acusa_volume_alto():
-    assert dividir(date(2026, 11, 1), date(2026, 11, 7)) == [(date(2026, 11, 1), date(2026, 11, 4)), (date(2026, 11, 5), date(2026, 11, 7))]
-    assert dividir(date(2026, 11, 1), date(2026, 11, 1)) == []
+async def test_periodo_antigo_e_consultado_um_dia_por_vez():
     r, srv, f = Relogio(), FakeRadar(Relogio()), FakeFontes()
     srv.r = r
     f.djen["Banco Exemplo"] = [item(1, dia="2026-11-02"), item(2, dia="2026-11-06")]
-    f.djen_count_fake = 10_000
     d, cl = _djen(f, srv, r)
-    assert len([x for _, l in await _tudo(d, _params()) for x in l]) == 2 and d.dividida
+    assert len([x for _, l in await _tudo(d, _params(de="2026-11-01", ate="2026-11-07")) for x in l]) == 2
+    assert f.requisicoes["djen"] == 7
     await cl.aclose()
 
 
@@ -220,3 +218,57 @@ async def test_caderno_baixa_confere_hash_e_nao_repete(tmp_path):
         await cadernos.baixar(http, {**meta, "hash": "0" * 64, "versao": 2}, tmp_path / "cadernos")
     assert not list((tmp_path / "cadernos").glob("*.tmp"))
     assert await cadernos.metadados(httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(404))), "TJPR", "2026-11-14") is None
+
+async def test_dia_saturado_divide_por_tribunal_e_meio_sem_perder_filtros():
+    r, srv, f = Relogio(), FakeRadar(Relogio()), FakeFontes()
+    srv.r = r
+    d, cl = _djen(f, srv, r)
+    chamadas = []
+    def atender(req):
+        q = dict(req.url.params)
+        chamadas.append((req.url.path, q))
+        if req.url.path.endswith('/tribunal'):
+            return httpx.Response(200, json=[{'instituicoes': [{'sigla': 'TJPR'}, {'sigla': 'TRF4'}, {'sigla': 'TRF4'}]}])
+        assert q['nomeParte'] == 'Banco Exemplo'
+        assert q['dataDisponibilizacaoInicio'] == q['dataDisponibilizacaoFim'] == '2026-11-03'
+        if 'siglaTribunal' not in q or (q['siglaTribunal'] == 'TJPR' and 'meio' not in q):
+            return httpx.Response(200, json={'count': 10000, 'items': []})
+        iid = 3 if q['siglaTribunal'] == 'TRF4' else (1 if q['meio'] == 'D' else 2)
+        return httpx.Response(200, json={'count': 1, 'items': [item(iid)]})
+    await d.http.aclose()
+    d.http = httpx.AsyncClient(transport=httpx.MockTransport(atender))
+    ids = [x['item']['id'] for _, lote in await _tudo(d, _params()) for x in lote]
+    assert sorted(ids) == [1, 2, 3] and d.dividida
+    assert len(chamadas) == 6
+    await d.http.aclose()
+    await cl.aclose()
+
+
+async def test_count_por_pagina_detecta_teto_real_sem_pedir_pagina_101():
+    r, srv, f = Relogio(), FakeRadar(Relogio()), FakeFontes()
+    srv.r = r
+    d, cl = _djen(f, srv, r)
+    paginas = []
+    def atender(req):
+        pagina = int(req.url.params['pagina'])
+        paginas.append(pagina)
+        return httpx.Response(200, json={'count': 100, 'items': [item((pagina - 1) * 100 + i) for i in range(1, 101)]})
+    await d.http.aclose()
+    d.http = httpx.AsyncClient(transport=httpx.MockTransport(atender))
+    p = _params(consultas=[{'params': {'nomeParte': 'Banco Exemplo', 'siglaTribunal': 'TJPR', 'meio': 'D'}}])
+    with pytest.raises(ErroDjen, match='10 mil'):
+        await _tudo(d, p)
+    assert max(paginas) == 100 and len(paginas) == 100
+    await d.http.aclose()
+    await cl.aclose()
+
+
+async def test_total_maior_que_pagina_curta_nao_e_conclusao():
+    r, srv, f = Relogio(), FakeRadar(Relogio()), FakeFontes()
+    srv.r = r
+    f.djen['Banco Exemplo'] = [item(1)]
+    f.djen_count_fake = 120
+    d, cl = _djen(f, srv, r)
+    with pytest.raises(ErroDjen, match='incompleta'):
+        await _tudo(d, _params())
+    await cl.aclose()

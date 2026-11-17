@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from collections.abc import AsyncIterator
 from datetime import date, timedelta
 
@@ -85,29 +86,87 @@ class Djen:
             raise ErroDjen("resposta do DJEN sem lista de itens")
         return r.corpo
 
-    async def _paginar(self, base: dict, de: date, ate: date) -> list[dict]:
+    async def _tribunais(self) -> list[str]:
+        # A lista oficial pode ser agrupada por UF e repetir tribunais federais.
+        async def fazer():
+            try:
+                r = await self.http.get(DJEN_URL + "/tribunal", headers={"Accept": "application/json"})
+                return Resposta(r.status_code, r.json() if r.status_code == 200 else None)
+            except (httpx.TransportError, ValueError):
+                return Resposta(0, None)
+        r = await self.lim.requisitar(fazer)
+        siglas = set()
+        def visitar(n):
+            if isinstance(n, dict):
+                if "sigla" in n:
+                    sigla = str(n["sigla"])
+                    if not re.fullmatch(r"[A-Za-z0-9-]{2,12}", sigla):
+                        raise ErroDjen("sigla inválida no catálogo oficial")
+                    siglas.add(sigla)
+                for v in n.values():
+                    visitar(v)
+            elif isinstance(n, list):
+                for v in n:
+                    visitar(v)
+        visitar(r.corpo)
+        if not siglas:
+            raise ErroDjen("lista oficial de tribunais vazia; consulta não concluída")
+        return sorted(siglas)
+
+    async def _repartir(self, base: dict, dia: date) -> AsyncIterator[dict]:
+        self.dividida = True
+        if not base.get("siglaTribunal"):
+            partes = [{**base, "siglaTribunal": t} for t in await self._tribunais()]
+        elif not base.get("meio"):
+            partes = [{**base, "meio": m} for m in ("D", "E")]
+        else:
+            raise ErroDjen("dia atingiu 10 mil resultados após divisão por tribunal e meio; não concluir parcialmente")
+        for p in partes:
+            async for it in self._paginar_dia(p, dia):
+                yield it
+
+    async def _paginar_dia(self, base: dict, dia: date) -> AsyncIterator[dict]:
         itens: list[dict] = []
         vistos: set[int] = set()
+        total = None
         for pagina in range(1, MAX_PAGINAS + 1):
-            j = await self._pagina({**base, "dataDisponibilizacaoInicio": de.isoformat(), "dataDisponibilizacaoFim": ate.isoformat(), "itensPorPagina": POR_PAGINA, "pagina": pagina})
+            j = await self._pagina({**base, "dataDisponibilizacaoInicio": dia.isoformat(), "dataDisponibilizacaoFim": dia.isoformat(), "itensPorPagina": POR_PAGINA, "pagina": pagina})
             lote = j["items"]
+            if total is None and j.get("count") is not None:
+                total = int(j["count"])
             if self.progresso:
                 self.progresso(fase="Lendo publicações do DJEN", paginas=self.paginas, lidos=len(lote))
-            if pagina == 1 and int(j.get("count") or 0) >= LIMITE_COUNT and de != ate:   # fonte acusa volume alto: divide o período
-                self.dividida = True
-                out: list[dict] = []
-                for a, b in dividir(de, ate):
-                    out += await self._paginar(base, a, b)
-                return out
-            novos = [it for it in lote if int(it.get("id") or 0) not in vistos]
+            if (pagina == 1 and total is not None and total >= LIMITE_COUNT) or len(itens) + len(lote) >= LIMITE_COUNT:
+                # Descarta a amostra antes de repartir: não a envia como se fosse o dia completo.
+                async for it in self._repartir(base, dia):
+                    yield it
+                return
+            novos = []
             for it in lote:
-                vistos.add(int(it.get("id") or 0))
+                iid = int(it.get("id") or 0)
+                if iid <= 0:
+                    raise ErroDjen("publicação sem identificador válido")
+                if iid not in vistos:
+                    vistos.add(iid)
+                    novos.append(it)
             if lote and not novos:
                 raise ErroDjen(f"paginação repetiu itens na página {pagina}")
             itens += novos
             if len(lote) < POR_PAGINA:
-                return itens
+                if total is not None and len(itens) < total:
+                    raise ErroDjen(f"resposta incompleta do DJEN: recebidos {len(itens)} de {total}")
+                for it in itens:
+                    yield it
+                return
         raise ErroDjen("consulta excedeu o limite de páginas")
+
+    async def _paginar(self, base: dict, de: date, ate: date) -> AsyncIterator[dict]:
+        # Inclui tarefas antigas já reservadas: nenhuma chamada mistura dias.
+        dia = de
+        while dia <= ate:
+            async for it in self._paginar_dia(base, dia):
+                yield it
+            dia += timedelta(days=1)
 
     async def janela(self, p: ParamsDjenJanela) -> AsyncIterator[tuple[str, list[dict]]]:
         """Entrega (chave_do_lote, itens[{q, item}]) já filtrados e sem repetição. A chave inclui o hash do conteúdo: se o DJEN devolver algo
@@ -117,7 +176,7 @@ class Djen:
         idx = 0
         for q, consulta in enumerate(p.consultas):
             base = {k: v for k, v in consulta.params.items()}
-            for it in await self._paginar(base, p.de, p.ate):
+            async for it in self._paginar(base, p.de, p.ate):
                 iid = int(it.get("id") or 0)
                 self.total_itens += 1
                 if iid <= 0 or iid in vistos or not aceita(consulta.filtro, it):

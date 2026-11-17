@@ -28,3 +28,13 @@ Abra **ATLAS — Coletor Distribuído** no menu. Configuração, teste de conex�
 
 ## Revogar um computador
 No Radar, revogue a chave dele (Administração → API) ou **Desativar** na tela Coletores. A chave revogada deixa de funcionar na próxima chamada.
+
+## Preparação local: início automático e registro de erros (17/11/2026)
+
+Na versão de código preparada localmente, ao abrir a janela o coletor aguarda dez segundos. Clique, tecla, rolagem ou toque na janela cancela esse início; o botão **Conectar e iniciar** permanece disponível. Se uma operação interna estiver em andamento, o início espera sua conclusão. O parâmetro antigo `--start` continua aceito e também aguarda os dez segundos. O coletor usa exclusivamente as tarefas oferecidas pelo Radar; não liga descoberta geral ou caderno DJEN.
+
+Novas configurações sugerem quatro tarefas simultâneas; configurações existentes não são sobrescritas. A concorrência efetiva respeita a configuração local, o máximo de cada coletor no Radar, limites globais por tipo, disponibilidade de tarefas e cotas das fontes. Não há garantia de quatro consultas simultâneas quando não há tarefas disponíveis ou o servidor impõe limites menores.
+
+Os erros são gravados em `logs/erros.jsonl` dentro do diretório de dados do coletor (Linux: `~/.local/share/atlas-worker`; Windows: `%LOCALAPPDATA%\\atlas-worker`, salvo configuração diferente). Cada linha é um JSON com data UTC, nível, origem, versão, mensagem, número da tarefa quando identificado e detalhes. O arquivo gira após 10 MiB, com cinco cópias; credenciais conhecidas são ocultadas. Não há envio automático ao Radar: é um arquivo local para análise, além da exportação de diagnóstico existente. Nomes e números processuais eventualmente presentes em mensagens continuam sendo dados sensíveis; compartilhe conscientemente.
+
+Código preparado apenas na árvore local: não foi publicado, empacotado, instalado nos computadores nem ativado no servidor. A complementação e a disponibilidade de quatro tarefas de DataJud dependem da fila e dos limites configurados no Radar; este ajuste não amplia o escopo dos favoritos nem cria reconsultas.

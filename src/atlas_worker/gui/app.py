@@ -14,7 +14,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal, QProcess
+from PySide6.QtCore import QObject, QEvent, Qt, QTimer, QUrl, Signal, QProcess
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGridLayout,
@@ -124,10 +124,32 @@ class Window(QMainWindow):
         self.bus = LogBus(self); self.bus.entry.connect(self.add_log); self.bus.progress.connect(self.download_progress)
         self.log_handler = GuiLogHandler(self.bus, [])
         logging.getLogger().addHandler(self.log_handler)
-        self.statusBar().showMessage("Pronto. Nenhuma tarefa é executada até você conectar.")
+        self.auto_start_timer = QTimer(self); self.auto_start_timer.setSingleShot(True)
+        self.auto_start_timer.timeout.connect(self.start_after_idle)
+        self.auto_start_timer.start(10000)
+        QApplication.instance().installEventFilter(self)
+        self.statusBar().showMessage("O coletor iniciará em 10 segundos se não houver interação.")
         self.update_timer = QTimer(self); self.update_timer.setInterval(6*60*60*1000)
         self.update_timer.timeout.connect(self.automatic_check); self.update_timer.start()
         QTimer.singleShot(1500, self.automatic_check)
+
+    def eventFilter(self, watched, event):
+        # A interação na janela cancela somente a partida automática inicial.
+        if (hasattr(self, "auto_start_timer") and self.auto_start_timer.isActive()
+                and isinstance(watched, QWidget) and watched.window() is self
+                and event.type() in (QEvent.Type.MouseButtonPress, QEvent.Type.KeyPress,
+                                     QEvent.Type.Wheel, QEvent.Type.TouchBegin)):
+            self.auto_start_timer.stop()
+            self.statusBar().showMessage("Início automático cancelado. Use Conectar e iniciar quando desejar.")
+        return super().eventFilter(watched, event)
+
+    def start_after_idle(self):
+        if self.close_pending or self.engine:
+            return
+        if self.jobs or self.install_pending or self.install_process:
+            self.auto_start_timer.start(1000)
+            return
+        self.start_engine()
 
     def button(self, text, action, primary=False):
         btn = QPushButton(text); btn.clicked.connect(action)
@@ -249,7 +271,7 @@ class Window(QMainWindow):
             if key == "DATAJUD_API_KEY" and not value.strip(): value = DATAJUD_PUBLIC_KEY
             if isinstance(field, QSpinBox):
                 try: field.setValue(int(value))
-                except (ValueError, TypeError): field.setValue(2 if key == "MAX_CONCURRENCY" else 30)
+                except (ValueError, TypeError): field.setValue(4 if key == "MAX_CONCURRENCY" else 30)
             elif isinstance(field, QComboBox): field.setCurrentText(value)
             else: field.setText(value)
         self.worker_name_label.setText(values.get("WORKER_NAME", "—"))
@@ -351,6 +373,7 @@ class Window(QMainWindow):
             self.start_btn.setEnabled(False); self.stop_btn.setEnabled(False); self.restart_btn.setEnabled(False)
 
     def start_engine(self):
+        self.auto_start_timer.stop()
         if self.engine or self.jobs or self.install_process or self.install_pending: return
         cfg = self.save()
         if not cfg: return
@@ -617,6 +640,8 @@ class Window(QMainWindow):
             self.close_pending = True; self.restart_pending = False
             self.stop_engine(); self.show_message("Aguarde o encerramento seguro das tarefas e operações em andamento.")
             event.ignore(); return
+        self.auto_start_timer.stop()
+        QApplication.instance().removeEventFilter(self)
         if self.tray: self.tray.hide()
         logging.getLogger().removeHandler(self.log_handler)
         event.accept()
@@ -625,7 +650,7 @@ class Window(QMainWindow):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="ATLAS — Coletor Distribuído")
     parser.add_argument("--env", type=Path, help="arquivo existente, compatível com a CLI")
-    parser.add_argument("--start", action="store_true", help="conecta após abrir a interface")
+    parser.add_argument("--start", action="store_true", help="mantido por compatibilidade; a conexão automática aguarda dez segundos")
     parser.add_argument("--restart-after", type=int, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.restart_after:
@@ -644,7 +669,6 @@ def main(argv=None):
     try:
         setup("INFO", default_state_dir(), [])
         window = Window(path); window.show()
-        if args.start: QTimer.singleShot(0, window.start_engine)
         return app.exec()
     finally: lock.close()
 

@@ -1,5 +1,13 @@
 # Histórico de versões
 
+## 0.2.5 — preparada, ainda não publicada
+
+- Início da coleta dez segundos após abrir, cancelável por interação na janela.
+- Quatro tarefas como padrão de novas configurações, respeitando os limites do Radar; configurações existentes permanecem intactas.
+- Registro de erros sanitizados em JSONL local, com versão e tarefa.
+- Coleta diária DJEN com divisão de consultas saturadas por tribunal e meio, sem avançar o checkpoint em caso de falha.
+- A complementação adicional de processos e a centralização de erros no Radar não fazem parte desta versão preparada.
+
 ## 0.2.4
 
 Instalador Windows x64 autônomo, atalhos, autostart opcional e atualizador assinado por plataforma. Pacote Ubuntu mantido e manifesto compatível com instalações Linux anteriores. Workflow compila e homologa os dois sistemas antes de publicar. Radar detecta plataforma e oferece os dois downloads.

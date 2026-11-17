@@ -75,7 +75,7 @@ Veja `.env.example`. O essencial:
 RADAR_API_URL=https://servidor.exemplo.com/radar/api/v1
 WORKER_NAME=coletor-01
 WORKER_TOKEN=            # a chave deste computador; nunca vai para o Git
-MAX_CONCURRENCY=2
+MAX_CONCURRENCY=4
 HEARTBEAT_INTERVAL=30
 LOG_LEVEL=INFO
 ```
