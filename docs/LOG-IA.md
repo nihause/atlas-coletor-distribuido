@@ -1,3 +1,10 @@
+## 2026-11-17 · Codex/GPT-6 · Publicação da versão 0.2.5 e skill de atualização
+- **Pedido:** disponibilizar atualização aos computadores e guardar skill para próximas versões do Atlas Coletor.
+- **Causa / motivo:** o aplicativo verifica Releases assinados; o commit isolado não gera atualização disponível.
+- **Mudou:** commit `ee3917a` enviado à main e tag `v0.2.5` publicada; Release oficial criado com instaladores Windows e Ubuntu, checksums e manifestos assinados. Criada skill `/home/justisoft/.codex/skills/atualizar-atlas-coletor/SKILL.md`; este log registra a publicação. Código e limites da versão em `docs/CHANGELOG.md`, `docs/COLETA-DIARIA.md` e `docs/OPERACAO.md`.
+- **Testado:** 109 testes locais aprovados e 1 omitido; GitHub Actions 44175810941 concluiu com sucesso testes e empacotamento Linux e Windows, teste do instalador Windows e publicação; ambos os manifestos baixados passaram na verificação Ed25519 da chave pública e informam versão 0.2.5. Skill validada com quick_validate.py. NÃO testados instalação nos computadores reais, atualização completa pela interface, quatro tarefas simultâneas de complementação em produção nem centralização dos erros.
+- **Atenção:** a atualização depende da ação do usuário em cada computador e de eventual autorização do sistema operacional. A complementação adicional dos processos, quatro tarefas DataJud no servidor e centralização dos erros continuam pendentes; escopo e limites de coleta preservados. Release: https://github.com/nihause/atlas-coletor-distribuido/releases/tag/v0.2.5.
+
 ## 2026-11-17 · Codex/GPT-6 · Preparação da versão 0.2.5
 - **Pedido:** fazer os commits para que os computadores possam receber atualização do coletor.
 - **Causa / motivo:** o atualizador reconhece Releases assinados; commit isolado não cria pacote nem disponibiliza atualização. A versão anterior publicada é 0.2.4.
